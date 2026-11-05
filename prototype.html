@@ -1,0 +1,2017 @@
+
+
+<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8" /> <meta name="vi…
+Pasted text
+
+ 
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DRAPE — AR Virtual Try-On</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink: #0e0e0e;
+    --cream: #f5f0e8;
+    --warm-white: #faf8f4;
+    --accent: #c8a97a;
+    --accent-dark: #9a7a4f;
+    --soft-gray: #e8e4dc;
+    --mid-gray: #9c9690;
+    --text-muted: #7a7570;
+    --overlay-bg: rgba(14, 14, 14, 0.85);
+    --card-radius: 16px;
+    --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--warm-white);
+    color: var(--ink);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 3rem;
+    height: 70px;
+    background: rgba(245, 240, 232, 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(200, 169, 122, 0.2);
+  }
+  .nav-logo {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 2rem;
+    font-weight: 300;
+    letter-spacing: 0.18em;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .nav-logo span { color: var(--accent); }
+  .nav-links { display: flex; gap: 2.5rem; align-items: center; }
+  .nav-links a {
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color var(--transition);
+  }
+  .nav-links a:hover { color: var(--ink); }
+  .nav-cta {
+    background: var(--ink) !important;
+    color: var(--cream) !important;
+    padding: 0.6rem 1.4rem;
+    border-radius: 40px;
+  }
+  .nav-cta:hover { background: var(--accent-dark) !important; color: #fff !important; }
+  .cart-btn {
+    display: flex; align-items: center; gap: 0.4rem;
+    font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink); cursor: pointer; border: none; background: none;
+    position: relative;
+  }
+  .cart-count {
+    position: absolute; top: -6px; right: -6px;
+    background: var(--accent); color: #fff;
+    font-size: 0.6rem; font-family: 'DM Mono', monospace;
+    width: 16px; height: 16px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transform: scale(0);
+    transition: all 0.2s;
+  }
+  .cart-count.visible { opacity: 1; transform: scale(1); }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding-top: 70px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-left {
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 6rem 4rem 4rem 5rem;
+    position: relative; z-index: 2;
+  }
+  .hero-tag {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--accent-dark);
+    background: rgba(200, 169, 122, 0.12);
+    border: 1px solid rgba(200, 169, 122, 0.3);
+    padding: 0.4rem 1rem; border-radius: 40px;
+    margin-bottom: 2rem;
+  }
+  .hero-tag::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); display: block;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.7); }
+  }
+  .hero h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(3.5rem, 6vw, 6rem);
+    font-weight: 300;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin-bottom: 1.5rem;
+  }
+  .hero h1 em { font-style: italic; color: var(--accent); }
+  .hero p {
+    font-size: 1.05rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+    max-width: 420px;
+    margin-bottom: 3rem;
+    font-weight: 300;
+  }
+  .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--ink); color: var(--cream);
+    padding: 1rem 2.2rem; border: none; border-radius: 40px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    text-decoration: none;
+  }
+  .btn-primary:hover { background: var(--accent-dark); transform: translateY(-2px); }
+  .btn-outline {
+    background: transparent; color: var(--ink);
+    padding: 1rem 2.2rem;
+    border: 1px solid rgba(14,14,14,0.25); border-radius: 40px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--transition);
+    text-decoration: none;
+  }
+  .btn-outline:hover { border-color: var(--ink); background: rgba(14,14,14,0.04); }
+
+  .hero-right {
+    position: relative; overflow: hidden;
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d2520 100%);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hero-visual-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 70% 30%, rgba(200,169,122,0.15) 0%, transparent 60%),
+      radial-gradient(ellipse at 30% 80%, rgba(200,169,122,0.08) 0%, transparent 50%);
+  }
+  .hero-visual {
+    position: relative; z-index: 2; text-align: center; padding: 3rem;
+  }
+  .hero-visual-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 24px; padding: 2rem;
+    backdrop-filter: blur(10px);
+  }
+  .ar-demo-placeholder {
+    width: 280px; height: 380px;
+    background: rgba(255,255,255,0.03);
+    border: 1px dashed rgba(200,169,122,0.3);
+    border-radius: 16px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 1rem; color: rgba(255,255,255,0.5);
+    font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase;
+    font-family: 'DM Mono', monospace;
+    position: relative; overflow: hidden;
+  }
+  .ar-demo-placeholder::before {
+    content: '';
+    position: absolute; top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(200,169,122,0.08), transparent);
+    animation: shimmer 3s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+  }
+  .ar-icon {
+    width: 64px; height: 64px;
+    border: 2px solid rgba(200,169,122,0.4);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem;
+    position: relative;
+  }
+  .ar-icon::after {
+    content: '';
+    position: absolute; inset: -6px;
+    border: 1px solid rgba(200,169,122,0.15);
+    border-radius: 50%;
+    animation: ring-pulse 2s ease-out infinite;
+  }
+  @keyframes ring-pulse {
+    0% { transform: scale(0.9); opacity: 1; }
+    100% { transform: scale(1.3); opacity: 0; }
+  }
+  .landmark-dots {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .landmark-dot {
+    position: absolute; width: 5px; height: 5px;
+    background: var(--accent); border-radius: 50%;
+    opacity: 0;
+    animation: dot-appear 0.5s ease forwards;
+  }
+  .hero-stats {
+    display: flex; gap: 1.5rem; margin-top: 1.5rem;
+  }
+  .hero-stat {
+    text-align: center; flex: 1;
+  }
+  .hero-stat-num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.6rem; font-weight: 500;
+    color: var(--accent);
+  }
+  .hero-stat-label {
+    font-size: 0.65rem; color: rgba(255,255,255,0.4);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ── SECTION COMMON ── */
+  section { padding: 6rem 5rem; }
+  .section-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent-dark); margin-bottom: 1rem;
+  }
+  .section-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-weight: 300; line-height: 1.1;
+    margin-bottom: 1.5rem;
+  }
+  .section-title em { font-style: italic; color: var(--accent); }
+  .section-sub {
+    color: var(--text-muted); font-size: 1rem; line-height: 1.7;
+    max-width: 520px; font-weight: 300;
+  }
+
+  /* ── HOW IT WORKS ── */
+  #how-it-works { background: var(--cream); }
+  .steps-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 2rem; margin-top: 4rem;
+  }
+  .step-card {
+    background: var(--warm-white); border-radius: var(--card-radius);
+    padding: 2rem; position: relative; overflow: hidden;
+    border: 1px solid rgba(200,169,122,0.15);
+    transition: transform var(--transition), box-shadow var(--transition);
+  }
+  .step-card:hover { transform: translateY(-6px); box-shadow: 0 24px 48px rgba(0,0,0,0.08); }
+  .step-num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 5rem; font-weight: 300;
+    color: rgba(200,169,122,0.15);
+    position: absolute; top: -0.5rem; right: 1rem;
+    line-height: 1;
+  }
+  .step-icon {
+    width: 52px; height: 52px;
+    background: rgba(200,169,122,0.1);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; margin-bottom: 1.5rem;
+  }
+  .step-card h3 {
+    font-size: 1rem; font-weight: 500;
+    margin-bottom: 0.7rem; letter-spacing: 0.02em;
+  }
+  .step-card p {
+    font-size: 0.875rem; color: var(--text-muted); line-height: 1.65;
+  }
+
+  /* ── TRY-ON STUDIO ── */
+  #studio {
+    background: var(--ink); color: var(--cream);
+    padding: 4rem 0 0 0;
+  }
+  #studio .section-tag { color: rgba(200,169,122,0.8); }
+  #studio .section-title { color: var(--cream); }
+  #studio .section-sub { color: rgba(245,240,232,0.55); }
+  .studio-header { padding: 4rem 5rem 3rem; }
+
+  .studio-layout {
+    display: grid; grid-template-columns: 340px 1fr 300px;
+    height: calc(100vh - 70px);
+    min-height: 600px;
+  }
+
+  /* Left Panel – Clothing Catalog */
+  .catalog-panel {
+    background: #111; border-right: 1px solid rgba(255,255,255,0.07);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .catalog-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .catalog-header h3 {
+    font-size: 0.75rem; letter-spacing: 0.15em; text-transform: uppercase;
+    font-family: 'DM Mono', monospace; color: rgba(245,240,232,0.5);
+  }
+  .filter-pills {
+    display: flex; gap: 0.5rem; padding: 1rem 1.5rem;
+    overflow-x: auto; scrollbar-width: none;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .filter-pills::-webkit-scrollbar { display: none; }
+  .pill {
+    flex-shrink: 0; padding: 0.35rem 0.9rem;
+    border-radius: 40px; font-size: 0.72rem;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(245,240,232,0.5);
+    cursor: pointer; background: none;
+    font-family: 'Outfit', sans-serif;
+    transition: all 0.2s;
+  }
+  .pill.active {
+    background: var(--accent); border-color: var(--accent);
+    color: var(--ink);
+  }
+  .catalog-grid {
+    flex: 1; overflow-y: auto; padding: 1rem;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+    align-content: start;
+    scrollbar-width: thin; scrollbar-color: rgba(200,169,122,0.3) transparent;
+  }
+  .clothing-item {
+    border-radius: 12px; overflow: hidden;
+    border: 2px solid transparent;
+    cursor: pointer; position: relative;
+    transition: border-color 0.2s, transform 0.2s;
+    background: #1a1a1a;
+    aspect-ratio: 3/4;
+  }
+  .clothing-item:hover { transform: scale(1.02); }
+  .clothing-item.selected { border-color: var(--accent); }
+  .clothing-visual {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 3rem; position: relative; overflow: hidden;
+  }
+  .clothing-label {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.75));
+    padding: 1.5rem 0.6rem 0.6rem;
+  }
+  .clothing-label p { font-size: 0.7rem; color: rgba(255,255,255,0.9); }
+  .clothing-label span { font-size: 0.65rem; color: rgba(200,169,122,0.8); font-family: 'DM Mono', monospace; }
+  .item-badge {
+    position: absolute; top: 0.5rem; left: 0.5rem;
+    background: var(--accent); color: var(--ink);
+    font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.2rem 0.5rem; border-radius: 4px;
+    font-family: 'DM Mono', monospace;
+  }
+  .selected-check {
+    position: absolute; top: 0.5rem; right: 0.5rem;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); display: none;
+    align-items: center; justify-content: center;
+    font-size: 0.65rem; color: var(--ink);
+  }
+  .clothing-item.selected .selected-check { display: flex; }
+
+  /* Center Panel – AR View */
+  .ar-panel {
+    position: relative; background: #0a0a0a;
+    display: flex; flex-direction: column;
+  }
+  .ar-view {
+    flex: 1; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #webcam-video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; display: none; transform: scaleX(-1);
+  }
+  #ar-canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+  }
+  .ar-placeholder {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 1.5rem; color: rgba(255,255,255,0.3);
+    font-family: 'DM Mono', monospace; text-align: center;
+    position: relative; z-index: 2;
+  }
+  .ar-placeholder-icon {
+    width: 100px; height: 100px; border-radius: 50%;
+    border: 1px dashed rgba(200,169,122,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.5rem; position: relative;
+  }
+  .ar-placeholder-icon::after {
+    content: '';
+    position: absolute; inset: -10px;
+    border: 1px solid rgba(200,169,122,0.1);
+    border-radius: 50%;
+    animation: ring-pulse 3s ease-out infinite;
+  }
+  .ar-placeholder h3 {
+    font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase;
+    color: rgba(245,240,232,0.4);
+  }
+  .ar-placeholder p {
+    font-size: 0.72rem; line-height: 1.6; max-width: 220px;
+    color: rgba(245,240,232,0.25);
+  }
+  .ar-start-btn {
+    background: var(--accent); color: var(--ink);
+    padding: 0.9rem 2rem; border: none; border-radius: 40px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase;
+    cursor: pointer; font-weight: 500;
+    transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem;
+  }
+  .ar-start-btn:hover { background: #d4b88a; transform: scale(1.03); }
+
+  /* AR Overlays */
+  .ar-overlay-ui {
+    position: absolute; inset: 0; pointer-events: none; z-index: 10;
+  }
+  .ar-corner {
+    position: absolute; width: 20px; height: 20px;
+    border-color: var(--accent); border-style: solid;
+    opacity: 0.6;
+  }
+  .ar-corner.tl { top: 1rem; left: 1rem; border-width: 1px 0 0 1px; }
+  .ar-corner.tr { top: 1rem; right: 1rem; border-width: 1px 1px 0 0; }
+  .ar-corner.bl { bottom: 1rem; left: 1rem; border-width: 0 0 1px 1px; }
+  .ar-corner.br { bottom: 1rem; right: 1rem; border-width: 0 1px 1px 0; }
+  .ar-status-bar {
+    position: absolute; top: 1.5rem; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 40px; padding: 0.4rem 1.2rem;
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(245,240,232,0.6);
+    display: flex; align-items: center; gap: 0.5rem;
+    pointer-events: none;
+  }
+  .status-dot { width: 5px; height: 5px; border-radius: 50%; background: #4ade80; }
+  .status-dot.inactive { background: #666; }
+  .ar-confidence {
+    position: absolute; bottom: 1.5rem; right: 1.5rem;
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.1em; color: rgba(245,240,232,0.3);
+    text-align: right;
+  }
+  .landmark-overlay {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    display: none;
+  }
+
+  /* Garment Overlay */
+  .garment-overlay {
+    position: absolute; z-index: 8; pointer-events: none;
+    transform-origin: top center;
+    transition: all 0.1s linear;
+    display: none;
+  }
+  .garment-svg { width: 100%; height: 100%; }
+
+  /* AR Controls Bar */
+  .ar-controls {
+    height: 72px; background: #111;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1.5rem; gap: 1rem;
+  }
+  .ar-ctrl-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    background: none; border: none; color: rgba(245,240,232,0.4);
+    font-family: 'DM Mono', monospace; font-size: 0.6rem;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    cursor: pointer; transition: color 0.2s; padding: 0.5rem 0.8rem;
+    border-radius: 8px;
+  }
+  .ar-ctrl-btn:hover { color: var(--cream); background: rgba(255,255,255,0.05); }
+  .ar-ctrl-btn.active { color: var(--accent); }
+  .ar-ctrl-btn svg { width: 20px; height: 20px; }
+  .capture-btn {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: rgba(200,169,122,0.15);
+    border: 2px solid rgba(200,169,122,0.4);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .capture-btn:hover { background: rgba(200,169,122,0.25); border-color: var(--accent); }
+  .capture-btn::after {
+    content: ''; width: 32px; height: 32px; border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* Right Panel – Details */
+  .detail-panel {
+    background: #0f0f0f; border-left: 1px solid rgba(255,255,255,0.07);
+    display: flex; flex-direction: column; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: rgba(200,169,122,0.2) transparent;
+  }
+  .detail-empty {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 1rem; padding: 2rem; text-align: center;
+    color: rgba(245,240,232,0.2); font-size: 0.75rem;
+    font-family: 'DM Mono', monospace; letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .detail-empty-icon { font-size: 2.5rem; opacity: 0.3; }
+  .item-detail { padding: 1.5rem; }
+  .item-preview {
+    width: 100%; aspect-ratio: 3/4;
+    background: #1a1a1a; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 5rem; margin-bottom: 1.5rem;
+    position: relative; overflow: hidden;
+  }
+  .item-preview::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.5) 100%);
+  }
+  .detail-brand {
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 0.4rem;
+  }
+  .detail-name {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.5rem; font-weight: 400;
+    color: var(--cream); margin-bottom: 0.5rem;
+  }
+  .detail-price {
+    font-size: 1.3rem; font-weight: 500;
+    color: var(--cream); margin-bottom: 1.5rem;
+    font-family: 'DM Mono', monospace;
+  }
+  .size-label {
+    font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(245,240,232,0.4); font-family: 'DM Mono', monospace;
+    margin-bottom: 0.75rem;
+  }
+  .size-grid {
+    display: flex; gap: 0.5rem; flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+  .size-btn {
+    width: 40px; height: 36px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: transparent; color: rgba(245,240,232,0.6);
+    font-size: 0.75rem; cursor: pointer; font-family: 'Outfit', sans-serif;
+    transition: all 0.2s;
+  }
+  .size-btn:hover { border-color: rgba(200,169,122,0.5); color: var(--cream); }
+  .size-btn.active {
+    border-color: var(--accent); background: rgba(200,169,122,0.15);
+    color: var(--accent);
+  }
+  .detail-desc {
+    font-size: 0.8rem; color: rgba(245,240,232,0.4);
+    line-height: 1.7; margin-bottom: 1.5rem; font-weight: 300;
+  }
+  .detail-add-btn {
+    width: 100%; padding: 1rem;
+    background: var(--accent); color: var(--ink);
+    border: none; border-radius: 40px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase;
+    cursor: pointer; font-weight: 500;
+    transition: all 0.2s; margin-bottom: 0.75rem;
+  }
+  .detail-add-btn:hover { background: #d4b88a; }
+  .detail-save-btn {
+    width: 100%; padding: 0.9rem;
+    background: transparent; color: rgba(245,240,232,0.5);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 40px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .detail-save-btn:hover { border-color: rgba(200,169,122,0.4); color: var(--cream); }
+  .fit-score {
+    background: rgba(255,255,255,0.04); border-radius: 12px;
+    padding: 1rem; margin-top: 1rem;
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+  .fit-score-label {
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(245,240,232,0.35); margin-bottom: 0.75rem;
+  }
+  .fit-bar-wrap { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+  .fit-bar-label { font-size: 0.72rem; color: rgba(245,240,232,0.5); min-width: 55px; }
+  .fit-bar {
+    flex: 1; height: 4px; background: rgba(255,255,255,0.07); border-radius: 2px;
+    overflow: hidden;
+  }
+  .fit-bar-fill {
+    height: 100%; border-radius: 2px; background: var(--accent);
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .fit-pct { font-size: 0.68rem; color: var(--accent); font-family: 'DM Mono', monospace; min-width: 32px; text-align: right; }
+
+  /* ── FEATURES ── */
+  #features { background: var(--warm-white); }
+  .features-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 2rem; margin-top: 4rem;
+  }
+  .feature-card {
+    padding: 2.5rem; border: 1px solid var(--soft-gray);
+    border-radius: var(--card-radius);
+    transition: all var(--transition);
+    position: relative; overflow: hidden;
+  }
+  .feature-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(200,169,122,0.04), transparent);
+    opacity: 0; transition: opacity var(--transition);
+  }
+  .feature-card:hover { border-color: rgba(200,169,122,0.4); transform: translateY(-4px); }
+  .feature-card:hover::before { opacity: 1; }
+  .feature-icon {
+    width: 56px; height: 56px; border-radius: 14px;
+    background: rgba(200,169,122,0.1);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; margin-bottom: 1.5rem;
+  }
+  .feature-card h3 { font-size: 1.1rem; font-weight: 500; margin-bottom: 0.75rem; }
+  .feature-card p { font-size: 0.875rem; color: var(--text-muted); line-height: 1.7; }
+  .feature-tag {
+    display: inline-block; margin-top: 1rem;
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent-dark); background: rgba(200,169,122,0.1);
+    padding: 0.3rem 0.7rem; border-radius: 4px;
+  }
+
+  /* ── TECH STACK ── */
+  #tech { background: var(--cream); }
+  .tech-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 1.5rem; margin-top: 4rem;
+  }
+  .tech-chip {
+    background: var(--warm-white); border: 1px solid rgba(200,169,122,0.2);
+    border-radius: 12px; padding: 1.5rem 1rem;
+    text-align: center; transition: all var(--transition);
+  }
+  .tech-chip:hover { border-color: var(--accent); transform: translateY(-3px); }
+  .tech-chip-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+  .tech-chip-name {
+    font-size: 0.8rem; font-weight: 500; margin-bottom: 0.3rem;
+  }
+  .tech-chip-desc {
+    font-size: 0.7rem; color: var(--text-muted); font-family: 'DM Mono', monospace;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── CART DRAWER ── */
+  .cart-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 2000; opacity: 0; visibility: hidden;
+    transition: all var(--transition);
+  }
+  .cart-overlay.open { opacity: 1; visibility: visible; }
+  .cart-drawer {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 420px;
+    background: var(--warm-white);
+    transform: translateX(100%); transition: transform var(--transition);
+    display: flex; flex-direction: column;
+    box-shadow: -20px 0 60px rgba(0,0,0,0.15);
+  }
+  .cart-overlay.open .cart-drawer { transform: translateX(0); }
+  .cart-drawer-header {
+    padding: 2rem; border-bottom: 1px solid var(--soft-gray);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .cart-drawer-header h2 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.8rem; font-weight: 300;
+  }
+  .cart-close {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--soft-gray); background: none;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; color: var(--text-muted);
+    transition: all 0.2s;
+  }
+  .cart-close:hover { border-color: var(--ink); color: var(--ink); }
+  .cart-items-wrap { flex: 1; overflow-y: auto; padding: 1.5rem; }
+  .cart-item {
+    display: flex; gap: 1rem; padding: 1.2rem 0;
+    border-bottom: 1px solid var(--soft-gray);
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .cart-item-thumb {
+    width: 70px; height: 90px; background: var(--soft-gray);
+    border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem;
+  }
+  .cart-item-info { flex: 1; }
+  .cart-item-name { font-size: 0.9rem; font-weight: 500; margin-bottom: 0.25rem; }
+  .cart-item-size {
+    font-size: 0.7rem; color: var(--text-muted);
+    font-family: 'DM Mono', monospace; letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+  }
+  .cart-item-price { font-size: 1rem; font-weight: 500; color: var(--ink); }
+  .cart-item-remove {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 1.1rem; transition: color 0.2s;
+    align-self: flex-start; padding: 0.2rem;
+  }
+  .cart-item-remove:hover { color: #e74c3c; }
+  .cart-footer { padding: 1.5rem; border-top: 1px solid var(--soft-gray); }
+  .cart-total {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 1.5rem;
+  }
+  .cart-total span { font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .cart-total strong { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; }
+  .checkout-btn {
+    width: 100%; padding: 1.1rem; background: var(--ink);
+    color: var(--cream); border: none; border-radius: 40px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem; letter-spacing: 0.12em; text-transform: uppercase;
+    cursor: pointer; font-weight: 500; transition: background 0.2s;
+  }
+  .checkout-btn:hover { background: var(--accent-dark); }
+  .cart-empty-msg {
+    text-align: center; padding: 4rem 2rem;
+    color: var(--text-muted); font-size: 0.875rem;
+  }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--ink); color: var(--cream);
+    padding: 0.9rem 1.8rem; border-radius: 40px;
+    font-size: 0.85rem; z-index: 3000;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none; white-space: nowrap;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── FOOTER ── */
+  footer {
+    background: var(--ink); color: rgba(245,240,232,0.4);
+    padding: 4rem 5rem 2rem;
+  }
+  .footer-top {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 3rem; margin-bottom: 3rem;
+  }
+  .footer-brand {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 2.5rem; font-weight: 300; color: var(--cream);
+    letter-spacing: 0.1em; margin-bottom: 1rem;
+  }
+  .footer-brand span { color: var(--accent); }
+  .footer-col h4 {
+    font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase;
+    font-family: 'DM Mono', monospace;
+    color: rgba(245,240,232,0.6); margin-bottom: 1.25rem;
+  }
+  .footer-col a {
+    display: block; font-size: 0.875rem; color: rgba(245,240,232,0.35);
+    text-decoration: none; margin-bottom: 0.6rem; transition: color 0.2s;
+  }
+  .footer-col a:hover { color: var(--cream); }
+  .footer-bottom {
+    border-top: 1px solid rgba(255,255,255,0.07); padding-top: 2rem;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.75rem;
+  }
+  .footer-bottom a { color: rgba(245,240,232,0.3); text-decoration: none; }
+
+  /* ── SCREENSHOT FLASH ── */
+  .flash-overlay {
+    position: fixed; inset: 0; background: white;
+    opacity: 0; pointer-events: none; z-index: 9999;
+    transition: opacity 0.1s;
+  }
+  .flash-overlay.flash { animation: flash-anim 0.4s ease; }
+  @keyframes flash-anim {
+    0% { opacity: 0; }
+    30% { opacity: 0.7; }
+    100% { opacity: 0; }
+  }
+
+  /* ── SCREENSHOT PREVIEW ── */
+  .screenshot-preview {
+    position: fixed; bottom: 2rem; right: 2rem; z-index: 2000;
+    background: var(--ink); border-radius: 12px; overflow: hidden;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    transform: translateY(120px); transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    width: 140px;
+  }
+  .screenshot-preview.show { transform: translateY(0); }
+  .screenshot-preview img { width: 100%; display: block; }
+  .screenshot-preview-label {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.65rem; color: rgba(245,240,232,0.6);
+    font-family: 'DM Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  /* Skeleton loader */
+  .skeleton {
+    background: linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%);
+    background-size: 200% 100%;
+    animation: skeleton-load 1.5s infinite;
+    border-radius: 8px;
+  }
+  @keyframes skeleton-load {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Responsive */
+  @media (max-width: 1200px) {
+    .studio-layout { grid-template-columns: 280px 1fr 260px; }
+    .steps-grid { grid-template-columns: repeat(2, 1fr); }
+    .tech-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; min-height: auto; }
+    .hero-right { min-height: 50vh; }
+    .studio-layout { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto; }
+    .catalog-panel { flex-direction: row; height: auto; }
+    .features-grid { grid-template-columns: 1fr; }
+    nav { padding: 0 1.5rem; }
+    .nav-links { display: none; }
+    section { padding: 4rem 1.5rem; }
+    .hero-left { padding: 4rem 1.5rem; }
+    .footer-top { grid-template-columns: 1fr 1fr; }
+    .tech-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">DRAPE<span>.</span></a>
+  <div class="nav-links">
+    <a href="#how-it-works">How It Works</a>
+    <a href="#studio">Try-On Studio</a>
+    <a href="#features">Features</a>
+    <a href="#tech">Tech</a>
+    <a href="#studio" class="nav-cta">Launch Studio</a>
+  </div>
+  <button class="cart-btn" onclick="toggleCart()">
+    🛍 Cart
+    <span class="cart-count" id="cart-count">0</span>
+  </button>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="home">
+  <div class="hero-left">
+    <div class="hero-tag">AR Try-On Technology — Live</div>
+    <h1>Wear it before<br>you <em>buy it.</em></h1>
+    <p>Real-time augmented reality clothing try-on powered by MediaPipe pose estimation. See exactly how garments fit your body — no dressing room required.</p>
+    <div class="hero-actions">
+      <a href="#studio" class="btn-primary">Launch Studio ↗</a>
+      <a href="#how-it-works" class="btn-outline">See How It Works</a>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="hero-visual-bg"></div>
+    <div class="hero-visual">
+      <div class="hero-visual-card">
+        <div class="ar-demo-placeholder" id="hero-demo">
+          <div class="ar-icon">👤</div>
+          <p>AR Pose Detection</p>
+          <div class="landmark-dots" id="hero-dots"></div>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <div class="hero-stat-num">33</div>
+            <div class="hero-stat-label">Landmarks</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-num">60fps</div>
+            <div class="hero-stat-label">Real-time</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-num">98%</div>
+            <div class="hero-stat-label">Accuracy</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works">
+  <div class="section-tag">Process</div>
+  <h2 class="section-title">From camera to <em>wardrobe</em></h2>
+  <p class="section-sub">Four intelligent steps transform your webcam feed into a personal fitting room.</p>
+  <div class="steps-grid">
+    <div class="step-card">
+      <div class="step-num">01</div>
+      <div class="step-icon">📷</div>
+      <h3>Camera Capture</h3>
+      <p>Your webcam feed is processed locally in your browser using WebRTC — no video is ever uploaded to any server.</p>
+      <span class="feature-tag">Privacy-First</span>
+    </div>
+    <div class="step-card">
+      <div class="step-num">02</div>
+      <div class="step-icon">🦴</div>
+      <h3>Pose Estimation</h3>
+      <p>MediaPipe Pose detects 33 body landmarks in real time, mapping shoulders, torso, arms and hips precisely.</p>
+      <span class="feature-tag">MediaPipe</span>
+    </div>
+    <div class="step-card">
+      <div class="step-num">03</div>
+      <div class="step-icon">🎨</div>
+      <h3>Garment Mapping</h3>
+      <p>Canvas 2D transforms scale and position the selected garment SVG to align with detected shoulder and torso keypoints.</p>
+      <span class="feature-tag">OpenCV-Inspired</span>
+    </div>
+    <div class="step-card">
+      <div class="step-num">04</div>
+      <div class="step-icon">✨</div>
+      <h3>Live Rendering</h3>
+      <p>The garment overlay blends with your video feed at up to 60fps, adapting as you move for a seamless try-on experience.</p>
+      <span class="feature-tag">WebGL Canvas</span>
+    </div>
+  </div>
+</section>
+
+<!-- STUDIO -->
+<section id="studio">
+  <div class="studio-header">
+    <div class="section-tag">Try-On Studio</div>
+    <h2 class="section-title">Your personal <em>fitting room</em></h2>
+    <p class="section-sub">Select a garment from the catalog, activate your camera, and see it on your body in real time.</p>
+  </div>
+
+  <div class="studio-layout">
+    <!-- LEFT: Catalog -->
+    <div class="catalog-panel">
+      <div class="catalog-header">
+        <h3>Catalog</h3>
+        <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:rgba(200,169,122,0.7);letter-spacing:0.1em;">24 items</span>
+      </div>
+      <div class="filter-pills">
+        <button class="pill active" onclick="filterCatalog('all', this)">All</button>
+        <button class="pill" onclick="filterCatalog('tops', this)">Tops</button>
+        <button class="pill" onclick="filterCatalog('jackets', this)">Jackets</button>
+        <button class="pill" onclick="filterCatalog('dresses', this)">Dresses</button>
+        <button class="pill" onclick="filterCatalog('formal', this)">Formal</button>
+      </div>
+      <div class="catalog-grid" id="catalog-grid">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+    <!-- CENTER: AR View -->
+    <div class="ar-panel">
+      <div class="ar-view" id="ar-view">
+        <video id="webcam-video" autoplay playsinline muted></video>
+        <canvas id="ar-canvas"></canvas>
+
+        <div class="ar-placeholder" id="ar-placeholder">
+          <div class="ar-placeholder-icon">📷</div>
+          <h3>AR Try-On Studio</h3>
+          <p>Enable your camera to see selected garments overlaid on your body in real time.</p>
+          <button class="ar-start-btn" onclick="initCamera()">
+            <span>▶</span> Enable Camera
+          </button>
+        </div>
+
+        <!-- AR UI overlay -->
+        <div class="ar-overlay-ui" id="ar-ui" style="display:none;">
+          <div class="ar-corner tl"></div>
+          <div class="ar-corner tr"></div>
+          <div class="ar-corner bl"></div>
+          <div class="ar-corner br"></div>
+          <div class="ar-status-bar">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Initializing…</span>
+          </div>
+          <div class="ar-confidence" id="ar-confidence"></div>
+        </div>
+
+        <!-- Garment overlay rendered on canvas -->
+      </div>
+
+      <div class="ar-controls">
+        <button class="ar-ctrl-btn" onclick="toggleLandmarks()" id="landmarks-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/>
+            <circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
+            <line x1="5" y1="5" x2="12" y2="12"/><line x1="19" y1="5" x2="12" y2="12"/>
+            <line x1="5" y1="19" x2="12" y2="12"/><line x1="19" y1="19" x2="12" y2="12"/>
+          </svg>
+          Skeleton
+        </button>
+        <button class="ar-ctrl-btn" onclick="toggleMirror()" id="mirror-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="12" y1="3" x2="12" y2="21"/><polyline points="7,8 3,12 7,16"/>
+            <polyline points="17,8 21,12 17,16"/>
+          </svg>
+          Mirror
+        </button>
+        <div class="capture-btn" onclick="captureScreenshot()" title="Capture"></div>
+        <button class="ar-ctrl-btn" onclick="adjustScale(0.05)" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+          </svg>
+          Scale +
+        </button>
+        <button class="ar-ctrl-btn" onclick="adjustScale(-0.05)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <line x1="8" y1="11" x2="14" y2="11"/>
+          </svg>
+          Scale −
+        </button>
+        <button class="ar-ctrl-btn" onclick="adjustYOffset(-10)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polyline points="18,15 12,9 6,15"/>
+          </svg>
+          Move Up
+        </button>
+        <button class="ar-ctrl-btn" onclick="adjustYOffset(10)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polyline points="6,9 12,15 18,9"/>
+          </svg>
+          Move Dn
+        </button>
+      </div>
+    </div>
+
+    <!-- RIGHT: Detail -->
+    <div class="detail-panel" id="detail-panel">
+      <div class="detail-empty" id="detail-empty">
+        <div class="detail-empty-icon">👗</div>
+        <p>Select a garment<br>to see details</p>
+      </div>
+      <div class="item-detail" id="item-detail" style="display:none;"></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="section-tag">Technology</div>
+  <h2 class="section-title">Built for the <em>future</em> of fashion</h2>
+  <p class="section-sub">Every component is engineered for precision, performance, and a seamless shopping experience.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🔒</div>
+      <h3>100% Client-Side Processing</h3>
+      <p>All pose estimation and AR rendering happens directly in your browser. Your camera feed never leaves your device — complete privacy by design.</p>
+      <span class="feature-tag">WebRTC + WASM</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🎯</div>
+      <h3>33-Point Landmark Tracking</h3>
+      <p>MediaPipe Pose tracks 33 precise body landmarks including shoulders, elbows, wrists and torso — enabling accurate garment placement even as you move.</p>
+      <span class="feature-tag">MediaPipe Pose</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <h3>60fps Real-Time Rendering</h3>
+      <p>Optimized Canvas 2D pipeline delivers smooth garment overlays at up to 60 frames per second on modern devices, with WebGL acceleration.</p>
+      <span class="feature-tag">Canvas API</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📐</div>
+      <h3>Adaptive Garment Scaling</h3>
+      <p>Garments automatically scale based on the distance between your shoulder landmarks, ensuring consistent fit regardless of how far you stand from the camera.</p>
+      <span class="feature-tag">Computer Vision</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🎨</div>
+      <h3>Instant Color Variants</h3>
+      <p>Switch between color options with a single click. Canvas compositing allows real-time hue-shifting of garment textures without reloading assets.</p>
+      <span class="feature-tag">Canvas Compositing</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📸</div>
+      <h3>Outfit Screenshot Capture</h3>
+      <p>Capture your try-on moment with a single tap. The canvas is merged with your video frame and saved as a high-resolution PNG for sharing.</p>
+      <span class="feature-tag">Canvas API</span>
+    </div>
+  </div>
+</section>
+
+<!-- TECH STACK -->
+<section id="tech">
+  <div class="section-tag">Stack</div>
+  <h2 class="section-title">Engineered with <em>precision</em></h2>
+  <p class="section-sub">Production-proven technologies chosen for performance, reliability and developer experience.</p>
+  <div class="tech-grid">
+    <div class="tech-chip">
+      <div class="tech-chip-icon">🐍</div>
+      <div class="tech-chip-name">Python</div>
+      <div class="tech-chip-desc">Backend API</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">👁</div>
+      <div class="tech-chip-name">OpenCV</div>
+      <div class="tech-chip-desc">Image processing</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">🦴</div>
+      <div class="tech-chip-name">MediaPipe</div>
+      <div class="tech-chip-desc">Pose estimation</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">🌐</div>
+      <div class="tech-chip-name">WebRTC</div>
+      <div class="tech-chip-desc">Camera access</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">🎨</div>
+      <div class="tech-chip-name">Canvas API</div>
+      <div class="tech-chip-desc">AR rendering</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">📱</div>
+      <div class="tech-chip-name">ARCore</div>
+      <div class="tech-chip-desc">Mobile AR</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">⚡</div>
+      <div class="tech-chip-name">WASM</div>
+      <div class="tech-chip-desc">Near-native speed</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">🔧</div>
+      <div class="tech-chip-name">FastAPI</div>
+      <div class="tech-chip-desc">REST endpoints</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">🐳</div>
+      <div class="tech-chip-name">Docker</div>
+      <div class="tech-chip-desc">Containerized</div>
+    </div>
+    <div class="tech-chip">
+      <div class="tech-chip-icon">☁</div>
+      <div class="tech-chip-name">Cloud Deploy</div>
+      <div class="tech-chip-desc">Scalable hosting</div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-top">
+    <div>
+      <div class="footer-brand">DRAPE<span>.</span></div>
+      <p style="font-size:0.8rem;line-height:1.7;max-width:220px;">The future of fashion retail — try before you buy, from anywhere.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <a href="#studio">Try-On Studio</a>
+      <a href="#features">Features</a>
+      <a href="#tech">Technology</a>
+      <a href="#">Pricing</a>
+    </div>
+    <div class="footer-col">
+      <h4>Developers</h4>
+      <a href="#">API Docs</a>
+      <a href="#">GitHub</a>
+      <a href="#">SDK</a>
+      <a href="#">Changelog</a>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <a href="#">About</a>
+      <a href="#">Privacy</a>
+      <a href="#">Terms</a>
+      <a href="#">Contact</a>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>© 2025 DRAPE Technologies. All rights reserved.</span>
+    <span>Built with MediaPipe · OpenCV · Canvas API</span>
+  </div>
+</footer>
+
+<!-- CART DRAWER -->
+<div class="cart-overlay" id="cart-overlay" onclick="handleCartOverlayClick(event)">
+  <div class="cart-drawer">
+    <div class="cart-drawer-header">
+      <h2>Your Cart</h2>
+      <button class="cart-close" onclick="toggleCart()">✕</button>
+    </div>
+    <div class="cart-items-wrap" id="cart-items-wrap">
+      <div class="cart-empty-msg" id="cart-empty">Your cart is empty.<br>Try something on first!</div>
+    </div>
+    <div class="cart-footer" id="cart-footer" style="display:none;">
+      <div class="cart-total">
+        <span>Total</span>
+        <strong id="cart-total">$0</strong>
+      </div>
+      <button class="checkout-btn" onclick="handleCheckout()">Proceed to Checkout</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+<!-- FLASH -->
+<div class="flash-overlay" id="flash"></div>
+<!-- SCREENSHOT PREVIEW -->
+<div class="screenshot-preview" id="screenshot-preview">
+  <img id="screenshot-img" src="" alt="Screenshot" />
+  <div class="screenshot-preview-label">Captured ✓</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════
+const CLOTHING_DATA = [
+  { id: 1, name: 'Silk Blouse', brand: 'MAISON', price: 289, emoji: '👚', category: 'tops', color: '#f0e6d3', desc: 'Fluid silk charmeuse blouse with a relaxed silhouette. Draped collar and subtle sheen.', badge: 'New', fits: { Shoulder: 92, Length: 87, Sleeve: 94 } },
+  { id: 2, name: 'Blazer Noir', brand: 'ATELIER', price: 445, emoji: '🧥', category: 'jackets', color: '#1a1a1a', desc: 'Structured single-breasted blazer in Italian wool. A wardrobe cornerstone.', badge: null, fits: { Shoulder: 95, Length: 90, Sleeve: 88 } },
+  { id: 3, name: 'Midi Dress', brand: 'FLORA', price: 365, emoji: '👗', category: 'dresses', color: '#8b6f5e', desc: 'Bias-cut midi dress in matte crepe. Fluid movement, effortless elegance.', badge: 'Trending', fits: { Shoulder: 89, Length: 93, Sleeve: 91 } },
+  { id: 4, name: 'Linen Shirt', brand: 'CÔTÉ', price: 195, emoji: '👔', category: 'tops', color: '#e8dcc8', desc: 'Relaxed-fit linen shirt. Pre-washed for softness and a lived-in look.', badge: null, fits: { Shoulder: 88, Length: 85, Sleeve: 90 } },
+  { id: 5, name: 'Trench Coat', brand: 'MAISON', price: 680, emoji: '🧣', category: 'jackets', color: '#c4a882', desc: 'Classic double-breasted trench in cotton gabardine. Timeless. Effortless.', badge: 'Bestseller', fits: { Shoulder: 96, Length: 88, Sleeve: 93 } },
+  { id: 6, name: 'Wrap Dress', brand: 'FLORA', price: 320, emoji: '💃', category: 'dresses', color: '#7b3f3f', desc: 'Wrap silhouette in floral print. Adjustable tie waist, V-neckline.', badge: null, fits: { Shoulder: 91, Length: 96, Sleeve: 87 } },
+  { id: 7, name: 'Oxford Shirt', brand: 'CÔTÉ', price: 175, emoji: '🎽', category: 'tops', color: '#4a90d9', desc: 'Classic oxford weave shirt. Button-down collar, chest pocket, relaxed fit.', badge: null, fits: { Shoulder: 90, Length: 88, Sleeve: 92 } },
+  { id: 8, name: 'Tuxedo Jacket', brand: 'ATELIER', price: 890, emoji: '🤵', category: 'formal', color: '#111', desc: 'Peak-lapel tuxedo jacket in midnight wool. Silk-faced lapels. Bespoke finish.', badge: 'Limited', fits: { Shoulder: 97, Length: 92, Sleeve: 95 } },
+  { id: 9, name: 'Peasant Top', brand: 'FLORA', price: 155, emoji: '🌸', category: 'tops', color: '#f5c5d5', desc: 'Embroidered cotton peasant blouse with puff sleeves and gathered neckline.', badge: null, fits: { Shoulder: 85, Length: 83, Sleeve: 88 } },
+  { id: 10, name: 'Leather Jacket', brand: 'MAISON', price: 1200, emoji: '🏍', category: 'jackets', color: '#3d2b1f', desc: 'Moto-inspired leather jacket in full-grain calfskin. Asymmetric zip closure.', badge: 'Premium', fits: { Shoulder: 94, Length: 86, Sleeve: 96 } },
+  { id: 11, name: 'Evening Gown', brand: 'ATELIER', price: 1450, emoji: '✨', category: 'dresses', color: '#2c1654', desc: 'Floor-length evening gown in silk velvet. Sculptural neckline, draped back.', badge: 'Couture', fits: { Shoulder: 98, Length: 99, Sleeve: 94 } },
+  { id: 12, name: 'Formal Vest', brand: 'ATELIER', price: 340, emoji: '🎩', category: 'formal', color: '#2a2a2a', desc: 'Five-button waistcoat in herringbone wool. Perfect for layering over a dress shirt.', badge: null, fits: { Shoulder: 93, Length: 91, Sleeve: 89 } },
+];
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let state = {
+  selectedItem: null,
+  cart: [],
+  filter: 'all',
+  cameraActive: false,
+  showLandmarks: false,
+  mirrorMode: true,
+  garmentScale: 1.0,
+  garmentYOffset: 0,
+  pose: null,
+  videoStream: null,
+  animFrameId: null,
+  poseDetector: null,
+  canvasCtx: null,
+  videoEl: null,
+  canvasEl: null,
+};
+
+// ═══════════════════════════════════════════
+// CATALOG RENDER
+// ═══════════════════════════════════════════
+function renderCatalog() {
+  const grid = document.getElementById('catalog-grid');
+  const items = state.filter === 'all'
+    ? CLOTHING_DATA
+    : CLOTHING_DATA.filter(i => i.category === state.filter);
+
+  grid.innerHTML = items.map(item => `
+    <div class="clothing-item ${state.selectedItem?.id === item.id ? 'selected' : ''}"
+         onclick="selectItem(${item.id})" data-category="${item.category}">
+      <div class="clothing-visual" style="background: linear-gradient(135deg, ${item.color}22, ${item.color}44);">
+        ${item.badge ? `<div class="item-badge">${item.badge}</div>` : ''}
+        <span style="font-size:3rem">${item.emoji}</span>
+        <div class="selected-check">✓</div>
+      </div>
+      <div class="clothing-label">
+        <p>${item.name}</p>
+        <span>$${item.price}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function filterCatalog(cat, el) {
+  state.filter = cat;
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  renderCatalog();
+}
+
+// ═══════════════════════════════════════════
+// ITEM SELECTION
+// ═══════════════════════════════════════════
+function selectItem(id) {
+  state.selectedItem = CLOTHING_DATA.find(i => i.id === id);
+  state.garmentScale = 1.0;
+  state.garmentYOffset = 0;
+  renderCatalog();
+  renderDetail();
+}
+
+function renderDetail() {
+  const item = state.selectedItem;
+  if (!item) return;
+  document.getElementById('detail-empty').style.display = 'none';
+  const d = document.getElementById('item-detail');
+  d.style.display = 'block';
+  d.innerHTML = `
+    <div class="item-preview">${item.emoji}</div>
+    <div class="detail-brand">${item.brand}</div>
+    <div class="detail-name">${item.name}</div>
+    <div class="detail-price">$${item.price}</div>
+    <div class="size-label">Select Size</div>
+    <div class="size-grid">
+      ${['XS','S','M','L','XL','2XL'].map((s,i) =>
+        `<button class="size-btn ${i===2?'active':''}" onclick="selectSize(this)">${s}</button>`
+      ).join('')}
+    </div>
+    <p class="detail-desc">${item.desc}</p>
+    <button class="detail-add-btn" onclick="addToCart()">Add to Cart</button>
+    <button class="detail-save-btn">Save to Wishlist ♡</button>
+    <div class="fit-score">
+      <div class="fit-score-label">AR Fit Score</div>
+      ${Object.entries(item.fits).map(([k, v]) => `
+        <div class="fit-bar-wrap">
+          <span class="fit-bar-label">${k}</span>
+          <div class="fit-bar"><div class="fit-bar-fill" style="width:0%" data-pct="${v}"></div></div>
+          <span class="fit-pct">${v}%</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  // Animate fit bars
+  setTimeout(() => {
+    d.querySelectorAll('.fit-bar-fill').forEach(el => {
+      el.style.width = el.dataset.pct + '%';
+    });
+  }, 100);
+}
+
+function selectSize(btn) {
+  btn.closest('.size-grid').querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ═══════════════════════════════════════════
+// CART
+// ═══════════════════════════════════════════
+function addToCart() {
+  if (!state.selectedItem) return;
+  const sizeBtn = document.querySelector('.size-btn.active');
+  const size = sizeBtn ? sizeBtn.textContent : 'M';
+  const existing = state.cart.find(c => c.id === state.selectedItem.id && c.size === size);
+  if (existing) { showToast('Already in cart!'); return; }
+  state.cart.push({ ...state.selectedItem, size, cartId: Date.now() });
+  updateCartCount();
+  showToast(`${state.selectedItem.name} added to cart ✓`);
+}
+
+function updateCartCount() {
+  const n = state.cart.length;
+  const badge = document.getElementById('cart-count');
+  badge.textContent = n;
+  badge.classList.toggle('visible', n > 0);
+}
+
+function toggleCart() {
+  document.getElementById('cart-overlay').classList.toggle('open');
+  renderCartDrawer();
+}
+
+function handleCartOverlayClick(e) {
+  if (e.target === document.getElementById('cart-overlay')) toggleCart();
+}
+
+function renderCartDrawer() {
+  const wrap = document.getElementById('cart-items-wrap');
+  const empty = document.getElementById('cart-empty');
+  const footer = document.getElementById('cart-footer');
+  if (state.cart.length === 0) {
+    empty.style.display = 'block';
+    footer.style.display = 'none';
+    wrap.querySelectorAll('.cart-item').forEach(el => el.remove());
+    return;
+  }
+  empty.style.display = 'none';
+  footer.style.display = 'block';
+  wrap.querySelectorAll('.cart-item').forEach(el => el.remove());
+  state.cart.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'cart-item';
+    div.innerHTML = `
+      <div class="cart-item-thumb">${item.emoji}</div>
+      <div class="cart-item-info">
+        <div class="cart-item-name">${item.name}</div>
+        <div class="cart-item-size">Size: ${item.size} · ${item.brand}</div>
+        <div class="cart-item-price">$${item.price}</div>
+      </div>
+      <button class="cart-item-remove" onclick="removeFromCart(${item.cartId})">✕</button>
+    `;
+    wrap.appendChild(div);
+  });
+  const total = state.cart.reduce((s, i) => s + i.price, 0);
+  document.getElementById('cart-total').textContent = '$' + total.toLocaleString();
+}
+
+function removeFromCart(cartId) {
+  state.cart = state.cart.filter(c => c.cartId !== cartId);
+  updateCartCount();
+  renderCartDrawer();
+  showToast('Removed from cart');
+}
+
+function handleCheckout() {
+  showToast('Redirecting to checkout…');
+  setTimeout(() => toggleCart(), 800);
+}
+
+// ═══════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.innerHTML = `<span>✓</span> ${msg}`;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ═══════════════════════════════════════════
+// CAMERA + MEDIAPIPE POSE
+// ═══════════════════════════════════════════
+async function initCamera() {
+  const placeholder = document.getElementById('ar-placeholder');
+  placeholder.innerHTML = `
+    <div class="ar-placeholder-icon">⏳</div>
+    <h3>Requesting Camera</h3>
+    <p>Please allow camera access when prompted.</p>
+  `;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+    });
+    state.videoStream = stream;
+
+    const video = document.getElementById('webcam-video');
+    const canvas = document.getElementById('ar-canvas');
+    state.videoEl = video;
+    state.canvasEl = canvas;
+
+    video.srcObject = stream;
+    video.style.display = 'block';
+
+    await new Promise(r => video.onloadedmetadata = r);
+    await video.play();
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    state.canvasCtx = canvas.getContext('2d');
+
+    document.getElementById('ar-ui').style.display = 'flex';
+    placeholder.style.display = 'none';
+    state.cameraActive = true;
+
+    updateStatus('Loading pose model…', false);
+    await loadPoseModel();
+
+  } catch (err) {
+    document.getElementById('ar-placeholder').innerHTML = `
+      <div class="ar-placeholder-icon">❌</div>
+      <h3>Camera Access Denied</h3>
+      <p>Please allow camera permissions in your browser settings and reload.</p>
+    `;
+    console.error('Camera error:', err);
+  }
+}
+
+async function loadPoseModel() {
+  try {
+    const pose = new Pose({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+    });
+
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    pose.onResults(onPoseResults);
+    state.poseDetector = pose;
+
+    updateStatus('Running AR…', true);
+    startRenderLoop();
+
+  } catch (err) {
+    console.warn('MediaPipe Pose failed, using demo mode:', err);
+    updateStatus('Demo mode (no pose model)', true);
+    startDemoLoop();
+  }
+}
+
+// ═══════════════════════════════════════════
+// POSE RESULTS
+// ═══════════════════════════════════════════
+function onPoseResults(results) {
+  state.pose = results.poseLandmarks || null;
+}
+
+// ═══════════════════════════════════════════
+// RENDER LOOP
+// ═══════════════════════════════════════════
+function startRenderLoop() {
+  const video = state.videoEl;
+  const canvas = state.canvasEl;
+  const ctx = state.canvasCtx;
+  let frameCount = 0;
+
+  async function loop() {
+    if (!state.cameraActive) return;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+
+    // Draw mirrored video
+    ctx.save();
+    if (state.mirrorMode) {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // Send to pose detector every 3rd frame for performance
+    if (frameCount % 3 === 0 && state.poseDetector) {
+      try { await state.poseDetector.send({ image: video }); } catch(e) {}
+    }
+    frameCount++;
+
+    // Draw landmark skeleton
+    if (state.showLandmarks && state.pose) {
+      drawSkeleton(ctx, state.pose, canvas.width, canvas.height);
+    }
+
+    // Draw garment overlay
+    if (state.selectedItem && state.pose) {
+      drawGarment(ctx, state.pose, canvas.width, canvas.height);
+    } else if (state.selectedItem && !state.pose) {
+      drawGarmentDemo(ctx, canvas.width, canvas.height);
+    }
+
+    // Confidence display
+    if (state.pose) {
+      const conf = Math.round(
+        (state.pose[11]?.visibility ?? 0) * 50 +
+        (state.pose[12]?.visibility ?? 0) * 50
+      );
+      document.getElementById('ar-confidence').textContent =
+        `Pose confidence: ${conf}%`;
+    }
+
+    state.animFrameId = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+// Demo loop when no pose model loaded
+function startDemoLoop() {
+  const video = state.videoEl;
+  const canvas = state.canvasEl;
+  const ctx = state.canvasCtx;
+
+  function loop() {
+    if (!state.cameraActive) return;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    ctx.save();
+    if (state.mirrorMode) {
+      ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    if (state.selectedItem) drawGarmentDemo(ctx, canvas.width, canvas.height);
+    state.animFrameId = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+// ═══════════════════════════════════════════
+// SKELETON DRAWING
+// ═══════════════════════════════════════════
+const POSE_CONNECTIONS = [
+  [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+  [11, 23], [12, 24], [23, 24], [23, 25], [24, 26],
+  [25, 27], [26, 28],
+];
+
+function drawSkeleton(ctx, landmarks, w, h) {
+  // Lines
+  ctx.strokeStyle = 'rgba(200, 169, 122, 0.7)';
+  ctx.lineWidth = 2;
+  POSE_CONNECTIONS.forEach(([a, b]) => {
+    const lA = landmarks[a], lB = landmarks[b];
+    if (!lA || !lB || lA.visibility < 0.5 || lB.visibility < 0.5) return;
+    const x1 = (state.mirrorMode ? 1 - lA.x : lA.x) * w;
+    const y1 = lA.y * h;
+    const x2 = (state.mirrorMode ? 1 - lB.x : lB.x) * w;
+    const y2 = lB.y * h;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  });
+
+  // Dots
+  landmarks.forEach((lm, i) => {
+    if (i > 28 || lm.visibility < 0.5) return;
+    const x = (state.mirrorMode ? 1 - lm.x : lm.x) * w;
+    const y = lm.y * h;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(200, 169, 122, 0.9)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+}
+
+// ═══════════════════════════════════════════
+// GARMENT OVERLAY – POSE-DRIVEN
+// ═══════════════════════════════════════════
+function drawGarment(ctx, landmarks, w, h) {
+  const lShoulder = landmarks[11];
+  const rShoulder = landmarks[12];
+  const lHip = landmarks[23];
+  const rHip = landmarks[24];
+
+  if (!lShoulder || !rShoulder || lShoulder.visibility < 0.4 || rShoulder.visibility < 0.4) return;
+
+  const lSX = (state.mirrorMode ? 1 - lShoulder.x : lShoulder.x) * w;
+  const rSX = (state.mirrorMode ? 1 - rShoulder.x : rShoulder.x) * w;
+  const lSY = lShoulder.y * h;
+  const rSY = rShoulder.y * h;
+
+  const cX = (lSX + rSX) / 2;
+  const cY = (lSY + rSY) / 2;
+  const shoulderWidth = Math.abs(lSX - rSX);
+
+  // Torso height estimate
+  let torsoH = shoulderWidth * 1.4;
+  if (lHip && rHip && lHip.visibility > 0.4) {
+    const lHY = lHip.y * h;
+    torsoH = Math.abs(lHY - cY);
+  }
+
+  const garmentW = shoulderWidth * 2.2 * state.garmentScale;
+  const garmentH = garmentW * 1.3;
+  const x = cX - garmentW / 2;
+  const y = cY - garmentH * 0.08 + state.garmentYOffset;
+
+  // Shoulder angle
+  const angle = Math.atan2(rSY - lSY, rSX - lSX);
+
+  ctx.save();
+  ctx.translate(cX, cY + state.garmentYOffset);
+  ctx.rotate(angle);
+  ctx.globalAlpha = 0.85;
+  drawGarmentShape(ctx, state.selectedItem, -garmentW / 2, -garmentH * 0.08, garmentW, garmentH);
+  ctx.restore();
+}
+
+function drawGarmentDemo(ctx, w, h) {
+  // Center of frame estimate
+  const cX = w / 2;
+  const cY = h * 0.32;
+  const garmentW = w * 0.42 * state.garmentScale;
+  const garmentH = garmentW * 1.3;
+
+  ctx.save();
+  ctx.translate(cX, cY + state.garmentYOffset);
+  ctx.globalAlpha = 0.75;
+  drawGarmentShape(ctx, state.selectedItem, -garmentW / 2, 0, garmentW, garmentH);
+  ctx.restore();
+}
+
+function drawGarmentShape(ctx, item, x, y, w, h) {
+  const cat = item.category;
+  const color = item.color;
+  const hexAlpha = color.replace('#','');
+  const r = parseInt(hexAlpha.substring(0,2),16);
+  const g = parseInt(hexAlpha.substring(2,4),16);
+  const b = parseInt(hexAlpha.substring(4,6),16);
+
+  ctx.fillStyle = `rgba(${r},${g},${b},0.88)`;
+  ctx.strokeStyle = `rgba(${r},${g},${b},0.4)`;
+  ctx.lineWidth = 1;
+
+  if (cat === 'tops' || cat === 'formal') {
+    // Body
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.2, y);
+    ctx.lineTo(x + w*0.8, y);
+    ctx.lineTo(x + w, y + h*0.12);
+    ctx.lineTo(x + w, y + h*0.85);
+    ctx.lineTo(x, y + h*0.85);
+    ctx.lineTo(x, y + h*0.12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Collar
+    ctx.fillStyle = `rgba(${r},${g},${b},0.95)`;
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.38, y);
+    ctx.lineTo(x + w*0.45, y + h*0.15);
+    ctx.lineTo(x + w*0.5, y + h*0.05);
+    ctx.lineTo(x + w*0.55, y + h*0.15);
+    ctx.lineTo(x + w*0.62, y);
+    ctx.closePath();
+    ctx.fill();
+
+    // Left sleeve
+    ctx.fillStyle = `rgba(${r},${g},${b},0.82)`;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h*0.12);
+    ctx.lineTo(x - w*0.2, y + h*0.18);
+    ctx.lineTo(x - w*0.22, y + h*0.55);
+    ctx.lineTo(x, y + h*0.52);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Right sleeve
+    ctx.beginPath();
+    ctx.moveTo(x + w, y + h*0.12);
+    ctx.lineTo(x + w*1.2, y + h*0.18);
+    ctx.lineTo(x + w*1.22, y + h*0.55);
+    ctx.lineTo(x + w, y + h*0.52);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Button line for formal
+    if (cat === 'formal') {
+      ctx.strokeStyle = `rgba(${Math.min(r+40,255)},${Math.min(g+40,255)},${Math.min(b+40,255)},0.6)`;
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) {
+        const bY = y + h*(0.2 + i*0.16);
+        ctx.beginPath();
+        ctx.arc(x + w*0.5, bY, 3, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    }
+
+  } else if (cat === 'jackets') {
+    // Body (wider, longer)
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.18, y);
+    ctx.lineTo(x + w*0.82, y);
+    ctx.lineTo(x + w*1.05, y + h*0.15);
+    ctx.lineTo(x + w*1.05, y + h*0.92);
+    ctx.lineTo(x - w*0.05, y + h*0.92);
+    ctx.lineTo(x - w*0.05, y + h*0.15);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Lapels
+    ctx.fillStyle = `rgba(${Math.min(r+20,255)},${Math.min(g+20,255)},${Math.min(b+20,255)},0.9)`;
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.5, y);
+    ctx.lineTo(x + w*0.3, y + h*0.25);
+    ctx.lineTo(x + w*0.42, y + h*0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.5, y);
+    ctx.lineTo(x + w*0.7, y + h*0.25);
+    ctx.lineTo(x + w*0.58, y + h*0.3);
+    ctx.closePath();
+    ctx.fill();
+
+    // Sleeves (full length)
+    ctx.fillStyle = `rgba(${r},${g},${b},0.85)`;
+    ctx.beginPath();
+    ctx.moveTo(x - w*0.05, y + h*0.15);
+    ctx.lineTo(x - w*0.3, y + h*0.22);
+    ctx.lineTo(x - w*0.32, y + h*0.75);
+    ctx.lineTo(x - w*0.05, y + h*0.7);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x + w*1.05, y + h*0.15);
+    ctx.lineTo(x + w*1.3, y + h*0.22);
+    ctx.lineTo(x + w*1.32, y + h*0.75);
+    ctx.lineTo(x + w*1.05, y + h*0.7);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+  } else if (cat === 'dresses') {
+    // Bodice
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.22, y);
+    ctx.lineTo(x + w*0.78, y);
+    ctx.lineTo(x + w*0.88, y + h*0.12);
+    ctx.lineTo(x + w*0.88, y + h*0.42);
+    ctx.lineTo(x + w*0.12, y + h*0.42);
+    ctx.lineTo(x + w*0.12, y + h*0.12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Skirt (flared)
+    const skirtGrad = ctx.createLinearGradient(x, y + h*0.42, x, y + h);
+    skirtGrad.addColorStop(0, `rgba(${r},${g},${b},0.9)`);
+    skirtGrad.addColorStop(1, `rgba(${r},${g},${b},0.7)`);
+    ctx.fillStyle = skirtGrad;
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.12, y + h*0.42);
+    ctx.lineTo(x + w*0.88, y + h*0.42);
+    ctx.lineTo(x + w*1.15, y + h);
+    ctx.lineTo(x - w*0.15, y + h);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Neckline detail
+    ctx.strokeStyle = `rgba(${Math.min(r+60,255)},${Math.min(g+60,255)},${Math.min(b+60,255)},0.5)`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + w*0.35, y);
+    ctx.quadraticCurveTo(x + w*0.5, y + h*0.1, x + w*0.65, y);
+    ctx.stroke();
+
+    // Thin straps
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`;
+    ctx.beginPath(); ctx.moveTo(x + w*0.3, y - h*0.04); ctx.lineTo(x + w*0.24, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + w*0.7, y - h*0.04); ctx.lineTo(x + w*0.76, y); ctx.stroke();
+  }
+
+  // Label overlay
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath();
+  ctx.roundRect(x + w*0.2, y + h*0.9, w*0.6, h*0.1, 4);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(200,169,122,0.9)';
+  ctx.font = `${Math.max(10, w*0.07)}px DM Mono, monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText(item.name.toUpperCase(), x + w*0.5, y + h*0.97);
+}
+
+// ═══════════════════════════════════════════
+// AR CONTROLS
+// ═══════════════════════════════════════════
+function toggleLandmarks() {
+  state.showLandmarks = !state.showLandmarks;
+  document.getElementById('landmarks-btn').classList.toggle('active', state.showLandmarks);
+}
+
+function toggleMirror() {
+  state.mirrorMode = !state.mirrorMode;
+  document.getElementById('mirror-btn').classList.toggle('active', !state.mirrorMode);
+}
+
+function adjustScale(delta) {
+  state.garmentScale = Math.max(0.3, Math.min(2.5, state.garmentScale + delta));
+  showToast(`Garment scale: ${Math.round(state.garmentScale * 100)}%`);
+}
+
+function adjustYOffset(delta) {
+  state.garmentYOffset += delta;
+  showToast(`Vertical offset: ${state.garmentYOffset > 0 ? '+' : ''}${state.garmentYOffset}px`);
+}
+
+function updateStatus(text, active) {
+  document.getElementById('status-text').textContent = text;
+  const dot = document.getElementById('status-dot');
+  dot.classList.toggle('inactive', !active);
+}
+
+// ═══════════════════════════════════════════
+// SCREENSHOT
+// ═══════════════════════════════════════════
+function captureScreenshot() {
+  const canvas = document.getElementById('ar-canvas');
+  const dataUrl = canvas.toDataURL('image/png');
+
+  // Flash effect
+  const flash = document.getElementById('flash');
+  flash.classList.add('flash');
+  setTimeout(() => flash.classList.remove('flash'), 400);
+
+  // Preview
+  const preview = document.getElementById('screenshot-preview');
+  document.getElementById('screenshot-img').src = dataUrl;
+  preview.classList.add('show');
+  setTimeout(() => preview.classList.remove('show'), 4000);
+
+  // Auto download
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `drape-tryon-${Date.now()}.png`;
+  a.click();
+
+  showToast('Screenshot saved! 📸');
+}
+
+// ═══════════════════════════════════════════
+// HERO ANIMATED DOTS
+// ═══════════════════════════════════════════
+function animateHeroDots() {
+  const container = document.getElementById('hero-dots');
+  if (!container) return;
+  const positions = [
+    {top:'20%',left:'30%'},{top:'15%',left:'60%'},{top:'35%',left:'20%'},
+    {top:'40%',left:'75%'},{top:'60%',left:'35%'},{top:'55%',left:'65%'},
+    {top:'75%',left:'25%'},{top:'70%',left:'55%'},{top:'85%',left:'45%'},
+    {top:'25%',left:'45%'},{top:'50%',left:'50%'},
+  ];
+  positions.forEach((pos, i) => {
+    setTimeout(() => {
+      const dot = document.createElement('div');
+      dot.className = 'landmark-dot';
+      dot.style.top = pos.top;
+      dot.style.left = pos.left;
+      dot.style.animationDelay = i * 0.08 + 's';
+      container.appendChild(dot);
+      dot.style.opacity = '1';
+      // Pulse
+      setInterval(() => {
+        dot.style.opacity = (Math.random() > 0.3) ? '1' : '0.3';
+      }, 1200 + Math.random() * 800);
+    }, i * 100);
+  });
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  renderCatalog();
+  animateHeroDots();
+
+  // Smooth scroll for nav links
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+});
+</script>
+</body>
+</html>

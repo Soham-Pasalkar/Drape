@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;0,6..96,600;0,6..96,700;0,6..96,800;0,6..96,900;1,6..96,400;1,6..96,500;1,6..96,600;1,6..96,700;1,6..96,800;1,6..96,900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,600&family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #F4F0E8;
+  --foreground: #111111;
+  --electric-blue: #294BFF;
+  --acid-lime: #D7E65A;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom editorial selection highlight */
+::selection {
+  background-color: #294BFF;
+  color: #F4F0E8;
+}
+
+/* Editorial image hover transitions */
+.editorial-image-container {
+  overflow: hidden;
+  position: relative;
+}
+
+.editorial-image {
+  transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1), filter 0.8s ease;
+}
+
+.editorial-image-container:hover .editorial-image {
+  transform: scale(1.04);
+}
+
+/* Thin horizontal luxury dividers */
+.luxury-divider {
+  border-color: rgba(17, 17, 17, 0.12);
+}
+
+/* Luxury Magazine Editorial Accents */
+.magazine-masthead {
+  font-family: "Bodoni Moda", Didot, serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.magazine-caption {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.magazine-folio {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.editorial-star {
+  display: inline-block;
+  color: #294BFF;
+  margin: 0 0.35em;
+  font-size: 0.85em;
+  vertical-align: middle;
+}
