@@ -51,7 +51,9 @@ import { CameraManager } from "@/lib/ar/camera";
 import { PoseTracker, PoseTrackerCallbacks } from "@/lib/ar/pose-tracker";
 import { ThreeSceneManager } from "@/lib/ar/three-scene";
 import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
-import { computeVideoDisplayTransform, VideoDisplayTransform } from "@/lib/ar/coordinates";
+import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC } from "@/lib/ar/coordinates";
+import type { DebugMaterialMode } from "@/lib/ar/debug/stage1-probe";
+import * as THREE from "three";
 import TrackingStatusBanner from "./TrackingStatusBanner";
 import CameraViewport from "./CameraViewport";
 import GarmentSelector from "./GarmentSelector";
@@ -82,6 +84,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
   const [diagnosticLayers, setDiagnosticLayers] = useState<DiagnosticLayers>(DEFAULT_DIAGNOSTIC_LAYERS);
   const [diagnosticMetrics, setDiagnosticMetrics] = useState<DiagnosticMetrics | null>(null);
+  const [materialMode, setMaterialMode] = useState<DebugMaterialMode>("normal");
   const [displayTransform, setDisplayTransform] = useState<VideoDisplayTransform | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState<boolean>(false);
@@ -147,7 +150,10 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       correspondence: showDiagnostics && diagnosticLayers.correspondence,
       collisionNormals: showDiagnostics && diagnosticLayers.collisionNormals,
     });
-  }, [showSkeleton, showDiagnostics, diagnosticLayers, isCameraActive]);
+    threeSceneRef.current?.setAxesGizmoVisible(showDiagnostics && diagnosticLayers.axesGizmo);
+    threeSceneRef.current?.setProbeEnabled(showDiagnostics);
+    threeSceneRef.current?.setDebugMaterialMode(materialMode);
+  }, [showSkeleton, showDiagnostics, diagnosticLayers, materialMode, isCameraActive]);
 
   const setFittingStatus = useCallback((s: GarmentFittingStatus) => {
     if (statusRef.current.fitting !== s) {
@@ -289,6 +295,30 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       framingGuidance: fit.framingGuidance,
       measurements: fit.measurements,
       ease: fit.ease,
+      stage1: (() => {
+        const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(...fit.bodyPose.quaternion), "YXZ");
+        const deg = (r: number) => (r * 180) / Math.PI;
+        const lm = poseFrameRef.current.landmarks;
+        const vis = lm.length ? lm.reduce((a, p) => a + (p.visibility ?? 0), 0) / lm.length : 0;
+        return {
+          renderFrame: sd.frame.renderFrame,
+          poseFrameId: poseFrameRef.current.frameId,
+          poseTimestampMs: poseFrameRef.current.keypoints?.timestamp ?? null,
+          dtMs: sd.frame.dtMs,
+          lerpA: sd.frame.lerpA,
+          snapped: sd.frame.snapped,
+          targetPos: sd.frame.targetPos,
+          bodyRootPos: sd.frame.bodyRootPos,
+          parented: sd.frame.garmentParentedToBodyRoot,
+          visible: sd.frame.bodyRootVisible,
+          rootEulerDeg: { yaw: deg(e.y), pitch: deg(e.x), roll: deg(e.z) },
+          meanVisibility: vis,
+          pnpSolveMs: fit.tracking.pnpSolveMs,
+          orientation: sd.orientation,
+          probeRgb: sd.probeRgb,
+          materialMode: sd.materialMode,
+        };
+      })(),
     };
   };
 
@@ -398,6 +428,11 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
               const fit = fittingEngine.processFrame(pf.keypoints, selectedGarmentRef.current, vW, vH);
               latestFitRef.current = fit;
               sceneNow.setFrameTarget(fit, now);
+              const dsp = displayRef.current;
+              const kpL = pf.keypoints.leftShoulder, kpR = pf.keypoints.rightShoulder;
+              sceneNow.setShoulderNdcHint(
+                dsp ? { left: imageToNDC({ x: kpL.x * vW, y: kpL.y * vH }, dsp), right: imageToNDC({ x: kpR.x * vW, y: kpR.y * vH }, dsp) } : null
+              );
               setFittingStatus(fit.pnpResult.valid ? "fitting_active" : "ready");
             } else {
               latestFitRef.current = null;
@@ -646,6 +681,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
               diagnosticMetrics={diagnosticMetrics}
               diagnosticLayers={diagnosticLayers}
               onDiagnosticLayersChange={setDiagnosticLayers}
+              materialMode={materialMode}
+              onMaterialModeChange={setMaterialMode}
               displayTransform={displayTransform}
               onSwitchCamera={isCameraActive ? handleSwitchCamera : undefined}
               onOpenCalibration={() => setCalibrationModalOpen(true)}

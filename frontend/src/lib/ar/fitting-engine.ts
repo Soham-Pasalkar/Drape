@@ -106,6 +106,8 @@ export interface TrackingDiagnostics {
   /** EMA of the frame-to-frame shoulder-centre motion in pixels (jitter + real motion). */
   landmarkJitterPx: number;
   proportionSource: 'population_prior' | 'observed';
+  /** Wall time of the LM root solve this frame (ms). */
+  pnpSolveMs: number;
 }
 
 export interface DetailedFittingResult {
@@ -282,12 +284,14 @@ export class FittingEngine {
       { name: 'right_hip', model: model('right_hip'), image: px(rh), weight: rh.visibility ?? 0 },
     ];
     const worldRot = world ? torsoRotationFromWorld(world) : null;
+    const tPnp = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const pnp = this.pnpSolver.solve(correspondences, K, {
       rotation: worldRot
         ? { q: worldRot, sigmaRad: 0.15 }
         : { q: torsoRotationFromImage(px(ls), px(rs)), sigmaRad: 0.6 },
       depth: { distanceM: distance.distanceM, sigmaM: Math.max(0.05, 0.1 * distance.distanceM) },
     });
+    const pnpSolveMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tPnp;
     const qRoot = new THREE.Quaternion(...pnp.rootRotation);
     const pRoot = new THREE.Vector3(...pnp.rootPosition);
     const invRoot = qRoot.clone().invert();
@@ -408,6 +412,7 @@ export class FittingEngine {
         yawSource,
         landmarkJitterPx: this.jitterEma,
         proportionSource: this.proportionEstimator.source,
+        pnpSolveMs,
       },
       fitDurationMs,
       transform: {

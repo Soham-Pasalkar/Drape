@@ -23,6 +23,7 @@ import {
 } from "@/lib/ar/types";
 import { VideoDisplayTransform, imageToDisplay } from "@/lib/ar/coordinates";
 import type { GarmentDiagnostics } from "@/lib/ar/garment-instance";
+import type { DebugMaterialMode, OrientationProbe } from "@/lib/ar/debug/stage1-probe";
 
 export interface DiagnosticLayers {
   landmarks: boolean;
@@ -32,6 +33,7 @@ export interface DiagnosticLayers {
   anchors: boolean;
   correspondence: boolean;
   collisionNormals: boolean;
+  axesGizmo: boolean;
 }
 
 export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
@@ -42,7 +44,28 @@ export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
   anchors: true,
   correspondence: false,
   collisionNormals: false,
+  axesGizmo: true,
 };
+
+/** Stage-1 per-frame diagnosis readout (all values from live runtime objects). */
+export interface Stage1Readout {
+  renderFrame: number;
+  poseFrameId: number;
+  poseTimestampMs: number | null;
+  dtMs: number;
+  lerpA: number;
+  snapped: boolean;
+  targetPos: [number, number, number];
+  bodyRootPos: [number, number, number];
+  parented: boolean;
+  visible: boolean;
+  rootEulerDeg: { yaw: number; pitch: number; roll: number };
+  meanVisibility: number;
+  pnpSolveMs: number;
+  orientation: OrientationProbe | null;
+  probeRgb: [number, number, number] | null;
+  materialMode: DebugMaterialMode;
+}
 
 export interface DiagnosticMetrics {
   camera: {
@@ -112,6 +135,7 @@ export interface DiagnosticMetrics {
   framingGuidance: FramingGuidance;
   measurements: BodyMeasurements | null;
   ease: GarmentEase | null;
+  stage1: Stage1Readout;
 }
 
 const BONES: [number, number][] = [
@@ -225,11 +249,15 @@ export default function DeveloperDiagnosticOverlay({
   metrics,
   layers,
   onLayersChange,
+  materialMode,
+  onMaterialModeChange,
 }: {
   active: boolean;
   metrics: DiagnosticMetrics | null;
   layers: DiagnosticLayers;
   onLayersChange: (layers: DiagnosticLayers) => void;
+  materialMode: DebugMaterialMode;
+  onMaterialModeChange: (mode: DebugMaterialMode) => void;
 }) {
   if (!active) return null;
   const m = metrics;
@@ -242,6 +270,13 @@ export default function DeveloperDiagnosticOverlay({
     ["anchors", "Anchors"],
     ["correspondence", "Correspondence"],
     ["collisionNormals", "Collision normals"],
+    ["axesGizmo", "Axes + F"],
+  ];
+  const MODES: [DebugMaterialMode, string][] = [
+    ["normal", "Mat: normal"],
+    ["frontOnly", "FrontSide"],
+    ["faceColors", "Front G / Back R"],
+    ["midGrey", "Mid-grey"],
   ];
 
   return (
@@ -263,10 +298,45 @@ export default function DeveloperDiagnosticOverlay({
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-1">
+        {MODES.map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => onMaterialModeChange(k)}
+            className={`px-1.5 py-0.5 border rounded-sm ${materialMode === k ? "border-electric-blue text-electric-blue bg-electric-blue/10" : "border-warm-ivory/20 text-warm-ivory/50"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {!m ? (
         <div className="text-warm-ivory/50 pt-2">Waiting for the first tracked frame…</div>
       ) : (
         <>
+          <Group title="Stage 1 probe">
+            <Row k="Frames r/p" v={`${m.stage1.renderFrame} / ${m.stage1.poseFrameId}`} />
+            <Row k="Pose ts" v={m.stage1.poseTimestampMs === null ? "—" : `${f(m.stage1.poseTimestampMs, 0)} ms`} />
+            <Row k="dt / a" v={`${f(m.stage1.dtMs, 1)} ms / ${f(m.stage1.lerpA, 3)}${m.stage1.snapped ? " snap" : ""}`} warn={m.stage1.lerpA < 0.01} />
+            <Row k="Target pos" v={v3(m.stage1.targetPos)} />
+            <Row k="Root pos" v={v3(m.stage1.bodyRootPos)} />
+            <Row k="Parented/vis" v={`${m.stage1.parented ? "yes" : "NO"} / ${m.stage1.visible ? "yes" : "no"}`} warn={!m.stage1.parented} />
+            <Row k="Yaw/Pit/Roll" v={`${f(m.stage1.rootEulerDeg.yaw, 1)} / ${f(m.stage1.rootEulerDeg.pitch, 1)} / ${f(m.stage1.rootEulerDeg.roll, 1)}°`} />
+            <Row k="Mean vis" v={f(m.stage1.meanVisibility, 2)} />
+            <Row k="PnP solve" v={`${f(m.stage1.pnpSolveMs, 2)} ms`} warn={m.stage1.pnpSolveMs > 2} />
+            {m.stage1.orientation && (
+              <>
+                <Row k="X cam" v={v3(m.stage1.orientation.xCam, 2)} />
+                <Row k="Y cam" v={v3(m.stage1.orientation.yCam, 2)} warn={m.stage1.orientation.yCam[1] < 0} />
+                <Row k="Z cam" v={v3(m.stage1.orientation.zCam, 2)} warn={m.stage1.orientation.zCam[2] < 0} />
+                <Row k="X ndc·shoulder" v={f(m.stage1.orientation.xVsShoulders, 3)} warn={(m.stage1.orientation.xVsShoulders ?? 1) < 0} />
+                <Row k="Front CCW" v={`${f(m.stage1.orientation.frontHalfFrontFacingPct, 1)} %`} warn={(m.stage1.orientation.frontHalfFrontFacingPct ?? 100) < 50} />
+              </>
+            )}
+            <Row k="Probe RGB" v={m.stage1.probeRgb ? m.stage1.probeRgb.join(", ") : "—"} />
+            <Row k="Material" v={m.stage1.materialMode} />
+          </Group>
+
           <Group title="Camera">
             <Row k="Video" v={`${m.camera.videoWidth}×${m.camera.videoHeight}`} />
             <Row k="Container" v={`${f(m.camera.containerWidth, 0)}×${f(m.camera.containerHeight, 0)} css`} />

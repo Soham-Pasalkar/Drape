@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { LandmarkPoint, TrackingStatus, FramingGuidance } from "@/lib/ar/types";
 import { VideoDisplayTransform, imageToDisplay } from "@/lib/ar/coordinates";
+import type { DebugMaterialMode } from "@/lib/ar/debug/stage1-probe";
 import DeveloperDiagnosticOverlay, {
   DiagnosticCanvasLayer,
   DiagnosticLayers,
@@ -48,6 +49,8 @@ interface CameraViewportProps {
   diagnosticMetrics?: DiagnosticMetrics | null;
   diagnosticLayers: DiagnosticLayers;
   onDiagnosticLayersChange: (layers: DiagnosticLayers) => void;
+  materialMode: DebugMaterialMode;
+  onMaterialModeChange: (mode: DebugMaterialMode) => void;
   /** CSS object-fit transform of the video inside this viewport (null until video metadata). */
   displayTransform?: VideoDisplayTransform | null;
   onSwitchCamera?: () => void;
@@ -71,6 +74,8 @@ export default function CameraViewport({
   diagnosticMetrics = null,
   diagnosticLayers,
   onDiagnosticLayersChange,
+  materialMode,
+  onMaterialModeChange,
   displayTransform = null,
   onSwitchCamera,
   onOpenCalibration,
@@ -187,6 +192,8 @@ export default function CameraViewport({
         metrics={diagnosticMetrics}
         layers={diagnosticLayers}
         onLayersChange={onDiagnosticLayersChange}
+        materialMode={materialMode}
+        onMaterialModeChange={onMaterialModeChange}
       />
 
       {/* 4. Real-Time Framing Guidance HUD (When user needs to step back / center) */}

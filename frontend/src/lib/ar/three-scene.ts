@@ -24,6 +24,29 @@ import { EnvironmentalLightingEstimator } from './environmental-lighting';
 import { GarmentInstance, GarmentDebugFlags, GarmentDiagnostics, SimulationData } from './garment-instance';
 import { buildProjectionMatrix, VideoDisplayTransform } from './coordinates';
 import { DetailedFittingResult } from './fitting-engine';
+import {
+  DebugMaterialMode,
+  OrientationProbe,
+  computeOrientationProbe,
+  createAxesGizmo,
+  createFaceColorMaterial,
+  createMidGreyMaterial,
+  readPixelAtNdc,
+} from './debug/stage1-probe';
+
+/** Per-frame transform log (Stage-1 diagnosis of the "static" symptom). */
+export interface FrameLog {
+  renderFrame: number;
+  dtMs: number;
+  /** Pose smoothing factor applied this frame (0 = frozen, 1 = snap). */
+  lerpA: number;
+  snapped: boolean;
+  targetPos: [number, number, number];
+  bodyRootPos: [number, number, number];
+  /** Garment wrapper is a child of bodyRoot (otherwise it can never move). */
+  garmentParentedToBodyRoot: boolean;
+  bodyRootVisible: boolean;
+}
 
 export interface SceneDebugLayers extends GarmentDebugFlags {
   bodyProxy: boolean;
@@ -36,6 +59,11 @@ export interface SceneDiagnostics {
   contextLost: boolean;
   drawCalls: number;
   triangles: number;
+  frame: FrameLog;
+  orientation: OrientationProbe | null;
+  /** sRGB pixel at the projected chest point of the garment (debug probe only). */
+  probeRgb: [number, number, number] | null;
+  materialMode: DebugMaterialMode;
 }
 
 /** Pose smoothing time constants (s). The fitting engine already filters; keep these short. */
@@ -92,6 +120,23 @@ export class ThreeSceneManager {
   private debug: SceneDebugLayers = { bodyProxy: false, bounds: false, anchors: false, correspondence: false, collisionNormals: false };
   private lastRenderMs = 0;
   private lastGarmentMs = 0;
+
+  // Stage-1 diagnostics
+  private renderFrame = 0;
+  private frameLog: FrameLog = {
+    renderFrame: 0, dtMs: 0, lerpA: 0, snapped: false, targetPos: [0, 0, 0], bodyRootPos: [0, 0, 0],
+    garmentParentedToBodyRoot: false, bodyRootVisible: false,
+  };
+  private materialMode: DebugMaterialMode = 'normal';
+  private originalMaterials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  private frontOnlyMaterials = new Map<THREE.Material, THREE.Material>();
+  private faceColorMaterial: THREE.Material | null = null;
+  private midGreyMaterial: THREE.Material | null = null;
+  private axesGizmo: THREE.Group | null = null;
+  private axesVisible = false;
+  private probeEnabled = false;
+  private probeRgb: [number, number, number] | null = null;
+  private shoulderNdc: { left: { x: number; y: number }; right: { x: number; y: number } } | null = null;
 
   private onContextLost = (e: Event) => {
     e.preventDefault();
@@ -240,6 +285,8 @@ export class ThreeSceneManager {
     this.active = inst;
     inst.attach(this.bodyRoot);
     inst.setDebug(this.debug, this.bodyProxy);
+    this.applyMaterialMode();
+    this.attachGizmo();
     // Legs are inside skirts / dresses; arms are outside every garment's torso panel.
     this.bodyProxy.setCollisionCapsules(garment.category === 'tops' ? [] : ['left_thigh', 'right_thigh']);
   }
@@ -274,6 +321,7 @@ export class ThreeSceneManager {
       this.bodyRoot.position.copy(this.targetPos);
       this.bodyRoot.quaternion.copy(this.targetQuat);
       this.prevPos = null;
+      this.frameLog.snapped = true;
     }
     this.hasTarget = true;
   }
@@ -294,6 +342,64 @@ export class ThreeSceneManager {
     this.setDebugLayers({ bodyProxy: visible });
   }
 
+  // ------------------------------------------------------------------ Stage-1 diagnostics
+
+  setDebugMaterialMode(mode: DebugMaterialMode): void {
+    this.materialMode = mode;
+    this.applyMaterialMode();
+  }
+
+  setAxesGizmoVisible(visible: boolean): void {
+    this.axesVisible = visible;
+    this.attachGizmo();
+  }
+
+  /** Enables the per-frame pixel probe (one gl.readPixels per frame; debug only). */
+  setProbeEnabled(enabled: boolean): void {
+    this.probeEnabled = enabled;
+    if (!enabled) this.probeRgb = null;
+  }
+
+  /** Shoulder landmarks in NDC, for comparing garment +X with the image. */
+  setShoulderNdcHint(hint: { left: { x: number; y: number }; right: { x: number; y: number } } | null): void {
+    this.shoulderNdc = hint;
+  }
+
+  private attachGizmo(): void {
+    if (!this.axesGizmo) this.axesGizmo = createAxesGizmo();
+    this.axesGizmo.parent?.remove(this.axesGizmo);
+    if (this.active && this.axesVisible) {
+      this.axesGizmo.position.copy(this.active.anchor.anchor);
+      this.active.anchorGroup.add(this.axesGizmo);
+    }
+  }
+
+  private applyMaterialMode(): void {
+    // Restore originals first.
+    this.originalMaterials.forEach((mat, mesh) => (mesh.material = mat));
+    this.originalMaterials.clear();
+    if (!this.active || this.materialMode === 'normal') return;
+    this.active.gltfRoot.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      this.originalMaterials.set(mesh, mesh.material);
+      const base = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.Material;
+      if (this.materialMode === 'frontOnly') {
+        let fo = this.frontOnlyMaterials.get(base);
+        if (!fo) {
+          fo = base.clone();
+          fo.side = THREE.FrontSide;
+          this.frontOnlyMaterials.set(base, fo);
+        }
+        mesh.material = fo;
+      } else if (this.materialMode === 'faceColors') {
+        mesh.material = this.faceColorMaterial ??= createFaceColorMaterial();
+      } else {
+        mesh.material = this.midGreyMaterial ??= createMidGreyMaterial();
+      }
+    });
+  }
+
   /** Resets frame timing (call when the tab becomes visible again). */
   resetTiming(): void {
     this.lastRenderTime = null;
@@ -308,9 +414,12 @@ export class ThreeSceneManager {
 
     const visible = this.hasTarget && this.tracking && this.active !== null;
     this.bodyRoot.visible = visible;
+    this.renderFrame++;
+    let lerpA = 0;
 
     if (visible) {
       const a = 1 - Math.exp(-dt / POSE_TAU_S);
+      lerpA = a;
       this.bodyRoot.position.lerp(this.targetPos, a);
       this.bodyRoot.quaternion.slerp(this.targetQuat, a);
       this.bodyRoot.updateMatrixWorld(true);
@@ -346,6 +455,24 @@ export class ThreeSceneManager {
     this.lastGarmentMs = performance.now() - g0;
 
     this.renderer.render(this.scene, this.camera);
+
+    this.frameLog = {
+      renderFrame: this.renderFrame,
+      dtMs: dt * 1000,
+      lerpA,
+      snapped: this.frameLog.snapped,
+      targetPos: [this.targetPos.x, this.targetPos.y, this.targetPos.z],
+      bodyRootPos: [this.bodyRoot.position.x, this.bodyRoot.position.y, this.bodyRoot.position.z],
+      garmentParentedToBodyRoot: this.active?.wrapper.parent === this.bodyRoot,
+      bodyRootVisible: this.bodyRoot.visible,
+    };
+    this.frameLog.snapped = false;
+    if (this.probeEnabled && this.active && visible) {
+      // Chest point ≈ 15 cm below the anchor, on the garment front (+Z).
+      const chest = this.active.anchor.anchor.clone().add(new THREE.Vector3(0, -0.15, 0.1)).applyMatrix4(this.active.anchorGroup.matrixWorld);
+      const ndc = chest.applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(this.camera.projectionMatrix);
+      this.probeRgb = readPixelAtNdc(this.renderer, ndc);
+    }
     this.lastRenderMs = performance.now() - t0;
   }
 
@@ -358,6 +485,18 @@ export class ThreeSceneManager {
       contextLost: this.contextLost,
       drawCalls: info?.calls ?? 0,
       triangles: info?.triangles ?? 0,
+      frame: { ...this.frameLog },
+      orientation: this.active
+        ? computeOrientationProbe(
+            this.active.anchorGroup,
+            this.active.anchor.anchor,
+            this.camera,
+            (this.active.meshes.find((m) => m.mesh.name === this.active!.metadata.construction.simulationMesh)?.mesh as THREE.Mesh) ?? null,
+            this.shoulderNdc
+          )
+        : null,
+      probeRgb: this.probeRgb,
+      materialMode: this.materialMode,
     };
   }
 
@@ -371,6 +510,9 @@ export class ThreeSceneManager {
       m.dispose();
     });
     this.materials.clear();
+    this.frontOnlyMaterials.forEach((m) => m.dispose());
+    this.faceColorMaterial?.dispose();
+    this.midGreyMaterial?.dispose();
     this.bodyProxy.dispose();
     if (this.renderer) {
       this.renderer.domElement.removeEventListener('webglcontextlost', this.onContextLost);
