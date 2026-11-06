@@ -59,7 +59,7 @@ export default function WardrobeAndStylist() {
                 </p>
               </div>
 
-              <div className="pt-6 border-t border-ink-black/10 flex items-center justify-between">
+              <Link href="/wardrobe" className="pt-6 border-t border-ink-black/10 flex items-center justify-between group-hover:border-ink-black/30 transition-colors">
                 <span className="text-[10px] uppercase tracking-widest font-mono text-ink-black/50">
                   PERSONAL VAULT
                 </span>
@@ -67,7 +67,7 @@ export default function WardrobeAndStylist() {
                   <span>Explore Wardrobe Studio</span>
                   <ArrowRight className="ml-2 w-3.5 h-3.5" />
                 </span>
-              </div>
+              </Link>
             </div>
           </div>
 

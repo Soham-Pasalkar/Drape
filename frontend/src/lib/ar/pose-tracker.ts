@@ -1,0 +1,226 @@
+/**
+ * DRAPE Pose Tracker (Upgraded Vision Engine)
+ *
+ * MediaPipe Tasks Vision Pose Landmarker orchestration with:
+ * - On-device WASM inference with GPU delegate and CPU fallback
+ * - Strictly synchronized frame processing via requestVideoFrameCallback
+ * - Image landmarks + 3D World landmarks extraction
+ * - 1€ Filter landmark smoothing integration
+ * - Volatile-only frame processing guaranteeing zero network transmission
+ */
+
+import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { LandmarkPoint, BodyKeypoints, TrackingStatus } from './types';
+import { LandmarkSmoother } from './landmark-smoother';
+
+export interface PoseTrackerCallbacks {
+  onKeypoints?: (keypoints: BodyKeypoints | null, rawLandmarks: LandmarkPoint[]) => void;
+  onStatusChange?: (status: TrackingStatus) => void;
+  onError?: (error: Error) => void;
+}
+
+export class PoseTracker {
+  private landmarker: PoseLandmarker | null = null;
+  private smoother: LandmarkSmoother;
+  private isInitializing = false;
+  private isTracking = false;
+  private rvfcHandle: number | null = null;
+  private rafId: number | null = null;
+  private lastTimestamp = -1;
+  private currentStatus: TrackingStatus = 'idle';
+
+  constructor() {
+    this.smoother = new LandmarkSmoother();
+  }
+
+  /**
+   * Initializes MediaPipe Pose Landmarker using local WASM and task model.
+   */
+  async initialize(): Promise<void> {
+    if (this.landmarker) return;
+    if (this.isInitializing) return;
+
+    this.isInitializing = true;
+    this.setStatus('initializing');
+
+    try {
+      // Load wasm binaries from local origin /wasm
+      const vision = await FilesetResolver.forVisionTasks('/wasm');
+
+      const modelOptions = {
+        modelAssetPath: '/models/pose_landmarker_lite.task',
+        runningMode: 'VIDEO' as const,
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        outputSegmentationMasks: false,
+      };
+
+      try {
+        // Attempt GPU delegate first for optimal real-time performance
+        this.landmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: modelOptions.modelAssetPath,
+            delegate: 'GPU',
+          },
+          ...modelOptions,
+        });
+      } catch (gpuError) {
+        console.warn('PoseTracker: GPU delegate unavailable, falling back to CPU', gpuError);
+        this.landmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: modelOptions.modelAssetPath,
+            delegate: 'CPU',
+          },
+          ...modelOptions,
+        });
+      }
+
+      this.setStatus('camera_active');
+    } catch (err: unknown) {
+      console.error('PoseTracker: Failed to initialize MediaPipe Pose Landmarker', err);
+      this.setStatus('error');
+      throw err;
+    } finally {
+      this.isInitializing = false;
+    }
+  }
+
+  /**
+   * Begins tracking pose on a live HTML5 video stream with synchronized frame processing.
+   */
+  async startTracking(
+    video: HTMLVideoElement,
+    callbacks: PoseTrackerCallbacks
+  ): Promise<void> {
+    if (!this.landmarker) {
+      await this.initialize();
+    }
+
+    if (!this.landmarker) {
+      throw new Error('POSE_TRACKER_NOT_INITIALIZED');
+    }
+
+    this.stopTracking();
+    this.isTracking = true;
+    this.lastTimestamp = -1;
+    this.smoother.reset();
+
+    const processFrame = () => {
+      if (!this.isTracking || !this.landmarker) return;
+
+      try {
+        if (
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          !video.paused &&
+          !video.ended &&
+          video.videoWidth > 0 &&
+          video.videoHeight > 0
+        ) {
+          const now = performance.now();
+          if (now > this.lastTimestamp) {
+            this.lastTimestamp = now;
+
+            const result = this.landmarker.detectForVideo(video, now);
+
+            if (result.landmarks && result.landmarks.length > 0 && result.landmarks[0].length >= 25) {
+              const rawLandmarks: LandmarkPoint[] = result.landmarks[0].map((lm) => ({
+                x: lm.x,
+                y: lm.y,
+                z: lm.z,
+                visibility: lm.visibility,
+                presence: lm.presence,
+              }));
+
+              let worldLandmarks: LandmarkPoint[] | undefined;
+              if (result.worldLandmarks && result.worldLandmarks.length > 0) {
+                worldLandmarks = result.worldLandmarks[0].map((lm) => ({
+                  x: lm.x,
+                  y: lm.y,
+                  z: lm.z,
+                  visibility: lm.visibility,
+                  presence: lm.presence,
+                }));
+              }
+
+              const smoothed = this.smoother.process(rawLandmarks, now, worldLandmarks);
+
+              if (smoothed) {
+                this.setStatus('body_detected', callbacks.onStatusChange);
+                callbacks.onKeypoints?.(smoothed, rawLandmarks);
+              } else {
+                this.setStatus('body_lost', callbacks.onStatusChange);
+                callbacks.onKeypoints?.(null, rawLandmarks);
+              }
+            } else {
+              this.setStatus('body_lost', callbacks.onStatusChange);
+              callbacks.onKeypoints?.(null, []);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('PoseTracker: Error during frame detection', err);
+        callbacks.onError?.(err as Error);
+      }
+
+      if (this.isTracking) {
+        this.scheduleNextFrame(video, processFrame);
+      }
+    };
+
+    this.scheduleNextFrame(video, processFrame);
+  }
+
+  private scheduleNextFrame(video: HTMLVideoElement, callback: () => void): void {
+    // Prefer requestVideoFrameCallback for exact frame synchronization if available
+    if ('requestVideoFrameCallback' in video) {
+      this.rvfcHandle = (video as any).requestVideoFrameCallback(() => {
+        callback();
+      });
+    } else {
+      this.rafId = requestAnimationFrame(callback);
+    }
+  }
+
+  /**
+   * Stops tracking loop and resets smoother state.
+   */
+  stopTracking(): void {
+    this.isTracking = false;
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.rvfcHandle = null;
+    this.smoother.reset();
+    this.lastTimestamp = -1;
+  }
+
+  /**
+   * Disposes MediaPipe landmarker and cleans up all resources.
+   */
+  dispose(): void {
+    this.stopTracking();
+    if (this.landmarker) {
+      try {
+        this.landmarker.close();
+      } catch {
+        // ignore
+      }
+      this.landmarker = null;
+    }
+    this.currentStatus = 'idle';
+  }
+
+  private setStatus(status: TrackingStatus, callback?: (status: TrackingStatus) => void): void {
+    if (this.currentStatus !== status) {
+      this.currentStatus = status;
+      callback?.(status);
+    }
+  }
+
+  get status(): TrackingStatus {
+    return this.currentStatus;
+  }
+}

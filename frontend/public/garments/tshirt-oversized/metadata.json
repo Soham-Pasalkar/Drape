@@ -1,0 +1,68 @@
+{
+  "id": "tshirt-oversized",
+  "name": "Boxy Heavyweight Tee",
+  "category": "tops",
+  "description": "Drop-shoulder relaxed silhouette crafted from heavyweight dry-touch organic cotton in Bone.",
+  "modelPath": "/garments/tshirt-oversized/model.glb",
+  "thumbnailPath": "/garments/tshirt-oversized/thumbnail.svg",
+  "dimensions": {
+    "chestCm": 116,
+    "waistCm": 110,
+    "lengthCm": 74,
+    "shoulderSpanCm": 56
+  },
+  "modelDimensions": {
+    "width": 0.675,
+    "height": 0.737,
+    "depth": 0.24
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.31079999999999997,
+    "z": 0,
+    "type": "shoulder_center"
+  },
+  "fittingProfile": {
+    "category": "tops",
+    "anchor": "torso",
+    "scaleMultipliers": {
+      "width": 1.2,
+      "height": 1.12,
+      "depth": 1.15
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#e8e4df",
+    "roughness": 0.92,
+    "metalness": 0.02
+  },
+  "fabric": {
+    "fabricType": "heavy_cotton",
+    "stretchLimitPercent": 12,
+    "sheenColor": "#ffffff",
+    "sheenRoughness": 0.7,
+    "roughness": 0.92,
+    "metalness": 0.02,
+    "densityGsm": 320
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.0001,
+    "bendCompliance": 0.1,
+    "skinAttachmentDist": 0.08,
+    "lraStiffness": 0.9,
+    "damping": 0.06,
+    "inertialCoupling": 0.3,
+    "collisionTolerance": 0.015
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-06T12:29:41.830Z"
+}

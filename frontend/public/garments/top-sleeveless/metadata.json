@@ -1,0 +1,69 @@
+{
+  "id": "top-sleeveless",
+  "name": "Silk Georgette Halter Top",
+  "category": "tops",
+  "description": "Minimalist high-neck sleeveless shell cut on the bias from pure double-faced silk in Obsidian.",
+  "modelPath": "/garments/top-sleeveless/model.glb",
+  "thumbnailPath": "/garments/top-sleeveless/thumbnail.svg",
+  "dimensions": {
+    "chestCm": 90,
+    "waistCm": 80,
+    "lengthCm": 54,
+    "shoulderSpanCm": 38
+  },
+  "modelDimensions": {
+    "width": 0.488,
+    "height": 0.54,
+    "depth": 0.165
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.2268,
+    "z": 0,
+    "type": "shoulder_center"
+  },
+  "fittingProfile": {
+    "category": "tops",
+    "anchor": "torso",
+    "scaleMultipliers": {
+      "width": 0.98,
+      "height": 0.92,
+      "depth": 0.9
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#0d131a",
+    "roughness": 0.65,
+    "metalness": 0.1
+  },
+  "fabric": {
+    "fabricType": "silk_georgette",
+    "stretchLimitPercent": 8,
+    "sheenColor": "#4a6582",
+    "sheenRoughness": 0.35,
+    "roughness": 0.65,
+    "metalness": 0.1,
+    "clearcoat": 0.2,
+    "densityGsm": 140
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.00008,
+    "bendCompliance": 0.01,
+    "skinAttachmentDist": 0.03,
+    "lraStiffness": 0.9,
+    "damping": 0.04,
+    "inertialCoupling": 0.35,
+    "collisionTolerance": 0.01
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-06T12:29:41.835Z"
+}

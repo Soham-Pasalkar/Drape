@@ -67,3 +67,6 @@ frontend/.env.local
 *.sqlite3
 *.db
 
+# TypeScript Build Artifacts
+*.tsbuildinfo
+

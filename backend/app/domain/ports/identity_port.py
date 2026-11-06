@@ -62,3 +62,18 @@ class IdentityPort(ABC):
         """Exchanges a valid refresh token for a fresh token pair."""
         pass
 
+    @abstractmethod
+    def hash_password(self, password: str) -> str:
+        """Hashes plaintext password with secure salt."""
+        pass
+
+    @abstractmethod
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verifies plaintext password against stored hash."""
+        pass
+
+    @abstractmethod
+    async def revoke_all_user_sessions(self, user_id: str) -> bool:
+        """Revokes all active sessions for a user."""
+        pass
+

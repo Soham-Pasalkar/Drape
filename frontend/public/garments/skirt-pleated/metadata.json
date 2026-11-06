@@ -1,0 +1,69 @@
+{
+  "id": "skirt-pleated",
+  "name": "Sunray Pleated Midi Skirt",
+  "category": "skirts",
+  "description": "Sharp accordion pleats radiating into fluid movement, finished in champagne satin crepe.",
+  "modelPath": "/garments/skirt-pleated/model.glb",
+  "thumbnailPath": "/garments/skirt-pleated/thumbnail.svg",
+  "dimensions": {
+    "waistCm": 68,
+    "hipsCm": 94,
+    "lengthCm": 78,
+    "hemSweepCm": 180
+  },
+  "modelDimensions": {
+    "width": 1.061,
+    "height": 0.82,
+    "depth": 0.833
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.04,
+    "z": 0,
+    "type": "waist_center"
+  },
+  "fittingProfile": {
+    "category": "skirts",
+    "anchor": "hips",
+    "scaleMultipliers": {
+      "width": 1.05,
+      "height": 1,
+      "depth": 1
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#d4c7b8",
+    "roughness": 0.45,
+    "metalness": 0.2
+  },
+  "fabric": {
+    "fabricType": "pleated_satin",
+    "stretchLimitPercent": 10,
+    "sheenColor": "#fff5e6",
+    "sheenRoughness": 0.3,
+    "roughness": 0.45,
+    "metalness": 0.2,
+    "clearcoat": 0.15,
+    "densityGsm": 220
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.00015,
+    "bendCompliance": 0.03,
+    "skinAttachmentDist": 0.22,
+    "lraStiffness": 0.88,
+    "damping": 0.04,
+    "inertialCoupling": 0.5,
+    "collisionTolerance": 0.015
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-06T12:29:41.839Z"
+}

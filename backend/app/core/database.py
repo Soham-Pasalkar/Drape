@@ -45,13 +45,7 @@ class Base(DeclarativeBase):
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency that yields a transaction-scoped database session."""
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except Exception as exc:
-            await session.rollback()
-            raise exc
-        finally:
-            await session.close()
+        yield session
 
 
 async def check_database_connection() -> bool:

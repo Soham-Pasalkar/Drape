@@ -1,0 +1,68 @@
+{
+  "id": "top-longsleeve",
+  "name": "Fine Cashmere Long-Sleeve Top",
+  "category": "tops",
+  "description": "Pure 16-gauge Mongolian cashmere with elongated cuffs and refined saddle shoulders in Camel.",
+  "modelPath": "/garments/top-longsleeve/model.glb",
+  "thumbnailPath": "/garments/top-longsleeve/thumbnail.svg",
+  "dimensions": {
+    "chestCm": 94,
+    "waistCm": 84,
+    "lengthCm": 65,
+    "shoulderSpanCm": 44
+  },
+  "modelDimensions": {
+    "width": 0.528,
+    "height": 0.649,
+    "depth": 0.185
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.273,
+    "z": 0,
+    "type": "shoulder_center"
+  },
+  "fittingProfile": {
+    "category": "tops",
+    "anchor": "torso",
+    "scaleMultipliers": {
+      "width": 1.02,
+      "height": 1,
+      "depth": 0.98
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#8c7b6c",
+    "roughness": 0.9,
+    "metalness": 0.03
+  },
+  "fabric": {
+    "fabricType": "cashmere",
+    "stretchLimitPercent": 16,
+    "sheenColor": "#b5a596",
+    "sheenRoughness": 0.8,
+    "roughness": 0.9,
+    "metalness": 0.03,
+    "densityGsm": 260
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.0003,
+    "bendCompliance": 0.04,
+    "skinAttachmentDist": 0.035,
+    "lraStiffness": 0.85,
+    "damping": 0.07,
+    "inertialCoupling": 0.2,
+    "collisionTolerance": 0.012
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-06T12:29:41.833Z"
+}
