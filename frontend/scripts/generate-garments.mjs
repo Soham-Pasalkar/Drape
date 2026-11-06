@@ -143,7 +143,9 @@ function createTShirtGeometry(options = {}) {
   const leftSleeveMesh = new THREE.Mesh(leftSleeveGeom);
   leftSleeveMesh.name = 'left_sleeve';
   leftSleeveMesh.position.set(shoulderPointX - 0.015, sleevePosY, 0);
-  leftSleeveMesh.rotation.z = -sleeveAngle;
+  // Sleeve geometry extends along local -Y. Rz(+a) maps -Y to (+sin a, -cos a, 0):
+  // the left sleeve (on +X, the wearer's left) must hang outward toward +X.
+  leftSleeveMesh.rotation.z = sleeveAngle;
   groupGeom.add(leftSleeveMesh);
 
   const rightSleeveGeom = new THREE.CylinderGeometry(sleeveTopRadius, sleeveRadius, sleeveLength, 16, 6, true);
@@ -151,18 +153,34 @@ function createTShirtGeometry(options = {}) {
   const rightSleeveMesh = new THREE.Mesh(rightSleeveGeom);
   rightSleeveMesh.name = 'right_sleeve';
   rightSleeveMesh.position.set(-(shoulderPointX - 0.015), sleevePosY, 0);
-  rightSleeveMesh.rotation.z = sleeveAngle;
+  // Mirror of the left sleeve: Rz(-a) maps -Y to (-sin a, -cos a, 0), outward toward -X.
+  rightSleeveMesh.rotation.z = -sleeveAngle;
   groupGeom.add(rightSleeveMesh);
 
   return {
     group: groupGeom,
-    anchor: { x: 0, y: yShoulder, z: 0, type: 'shoulder_center' },
+    // Semantic anchor = midpoint of the two shoulder seam points (where the sleeves attach),
+    // not the collar line above it.
+    anchor: { x: 0, y: Number(shoulderPointY.toFixed(4)), z: 0, type: 'shoulder_center' },
     simMesh: {
       positions: new Float32Array(vertices),
       indices: new Uint16Array(indices),
       anchorWeights: new Float32Array(anchorWeights),
     },
   };
+}
+
+/**
+ * Ramanujan ellipse perimeter. Used to derive skirt radii from declared pattern
+ * circumferences so the generated geometry matches its metadata.
+ */
+function ramanujanPerimeter(a, b) {
+  return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+}
+
+/** Base radius r such that an ellipse with semi-axes (1.12 r, 0.88 r) has perimeter C. */
+function skirtRadiusForCircumference(circumferenceM) {
+  return circumferenceM / ramanujanPerimeter(1.12, 0.88);
 }
 
 /**
@@ -234,7 +252,8 @@ function createSkirtGeometry(options = {}) {
   groupGeom.add(mesh);
 
   // Waistband
-  const bandGeom = new THREE.CylinderGeometry(waistRadius * 1.08, waistRadius * 1.1, 0.04, 32, 1, true);
+  // Waistband sits just outside the skirt body's top ring (3-4% larger to avoid z-fighting).
+  const bandGeom = new THREE.CylinderGeometry(waistRadius * 1.03, waistRadius * 1.04, 0.04, 32, 1, true);
   bandGeom.scale(1.12, 1, 0.88);
   bandGeom.translate(0, 0.02, 0);
   const bandMesh = new THREE.Mesh(bandGeom);
@@ -590,8 +609,9 @@ const GARMENTS = [
     roughness: 0.85,
     metalness: 0.05,
     generator: () => createSkirtGeometry({
-      waistRadius: 0.18,
-      hemRadius: 0.35,
+      // Derived from dimensions.waistCm (72) and dimensions.hemSweepCm (140).
+      waistRadius: skirtRadiusForCircumference(0.72),
+      hemRadius: skirtRadiusForCircumference(1.40),
       length: 0.62,
       pleatCount: 12,
       pleatDepth: 0.015,
@@ -635,8 +655,9 @@ const GARMENTS = [
     roughness: 0.45,
     metalness: 0.2,
     generator: () => createSkirtGeometry({
-      waistRadius: 0.17,
-      hemRadius: 0.44,
+      // Derived from dimensions.waistCm (68) and dimensions.hemSweepCm (180).
+      waistRadius: skirtRadiusForCircumference(0.68),
+      hemRadius: skirtRadiusForCircumference(1.80),
       length: 0.78,
       pleatCount: 20,
       pleatDepth: 0.035,
@@ -662,7 +683,7 @@ const GARMENTS = [
     simulation: {
       enabled: true,
       substeps: 4,
-      iterations: 8,
+      iterations: 2, // profiled: 8 iterations cost 3.4× with no strain benefit on this mesh
       stretchCompliance: 0.00015,
       bendCompliance: 0.03,
       skinAttachmentDist: 0.22,

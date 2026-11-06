@@ -48,8 +48,12 @@ export const POSE_LANDMARKS = {
 
 export class LandmarkSmoother {
   private filters: Map<number, OneEuroFilterVec3> = new Map();
+  private worldFilters: Map<number, OneEuroFilterVec3> = new Map();
   private filterConfig: OneEuroConfig;
+  private worldFilterConfig: OneEuroConfig;
   private prevTimestamp = 0;
+  /** After a tracking gap longer than this the filters restart instead of interpolating. */
+  static readonly RESET_GAP_MS = 500;
 
   constructor(config?: Partial<OneEuroConfig>) {
     this.filterConfig = {
@@ -58,6 +62,9 @@ export class LandmarkSmoother {
       dCutOff: config?.dCutOff ?? 1.0, // Derivative cutoff
       maxVelocity: 4.0,                // Velocity clamping
     };
+    // World landmarks are metres (≈ 0.4 m shoulder span vs ≈ 0.2 normalized units), so the
+    // speed coefficient is scaled accordingly; they are also noisier in z.
+    this.worldFilterConfig = { fMin: 1.0, beta: 0.008, dCutOff: 1.0, maxVelocity: 8.0 };
   }
 
   /**
@@ -65,6 +72,7 @@ export class LandmarkSmoother {
    */
   reset(): void {
     this.filters.clear();
+    this.worldFilters.clear();
     this.prevTimestamp = 0;
   }
 
@@ -94,6 +102,12 @@ export class LandmarkSmoother {
       return null;
     }
 
+    if (this.prevTimestamp > 0 && timestamp - this.prevTimestamp > LandmarkSmoother.RESET_GAP_MS) {
+      this.filters.clear();
+      this.worldFilters.clear();
+    }
+    this.prevTimestamp = timestamp;
+
     const smoothedPoints: LandmarkPoint[] = [];
 
     // Filter each landmark with its own 1€ filter instance
@@ -112,6 +126,19 @@ export class LandmarkSmoother {
         z: filtered[2],
         visibility: raw.visibility,
         presence: raw.presence,
+      });
+    }
+
+    let smoothedWorld: LandmarkPoint[] | undefined;
+    if (worldLandmarks && worldLandmarks.length === rawLandmarks.length) {
+      smoothedWorld = worldLandmarks.map((w, i) => {
+        let f = this.worldFilters.get(i);
+        if (!f) {
+          f = new OneEuroFilterVec3(this.worldFilterConfig);
+          this.worldFilters.set(i, f);
+        }
+        const v = f.filter([w.x, w.y, w.z], timestamp);
+        return { x: v[0], y: v[1], z: v[2], visibility: w.visibility, presence: w.presence };
       });
     }
 
@@ -163,6 +190,8 @@ export class LandmarkSmoother {
       z: (shoulderCenter.z + hipCenter.z) / 2.0,
     };
 
+    // NOTE: these spans are in NORMALIZED image units (x/W and y/H mixed), useful only as
+    // framing heuristics. Pixel spans must be computed with normalizedPixelDistance().
     const shoulderWidth = Math.hypot(rs.x - ls.x, rs.y - ls.y);
     const torsoHeight = Math.hypot(shoulderCenter.x - hipCenter.x, shoulderCenter.y - hipCenter.y);
     const hipWidth = Math.hypot(rh.x - lh.x, rh.y - lh.y);
@@ -197,7 +226,8 @@ export class LandmarkSmoother {
       torsoHeight,
       hipWidth,
       confidence,
-      worldLandmarks,
+      worldLandmarks: smoothedWorld,
+      timestamp,
     };
   }
 }

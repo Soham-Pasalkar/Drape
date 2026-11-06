@@ -15,7 +15,24 @@ import {
 } from './types';
 import { PersonalizedBodyShapeEstimator } from './personalized-body-shape';
 
+/** Minimum measurement confidence for a fit verdict to be reported as reliable. */
+export const RELIABLE_FIT_MIN_CONFIDENCE = 0.5;
+
 export class GarmentEaseEngine {
+  /**
+   * Horizontal fabric stretch factor implied by negative ease, used as the only fit-driven
+   * garment scaling. Fabric stretches over a larger body but does not shrink onto a smaller
+   * one, so the factor is ≥ 1, capped at the fabric's stretch limit, and 1 when unreliable.
+   */
+  computeStretchScale(garment: GarmentMetadata, measurements: BodyMeasurements, ease: GarmentEase): number {
+    if (!ease.reliable) return 1;
+    const garmentC = garment.category === 'skirts' ? garment.dimensions.hipsCm : garment.dimensions.chestCm;
+    const bodyC = garment.category === 'skirts' ? measurements.hipCircumferenceCm : measurements.chestCircumferenceCm;
+    if (!garmentC || !(bodyC > 0)) return 1;
+    const limit = 1 + (garment.fabric.stretchLimitPercent || 15) / 100;
+    return Math.min(limit, Math.max(1, bodyC / garmentC));
+  }
+
   /**
    * Evaluates garment ease, fabric strain, and fit assessment.
    */
@@ -82,7 +99,14 @@ export class GarmentEaseEngine {
       fitAssessment = 'tailored';
     }
 
+    // A fit verdict is only meaningful when body scale is anchored metrically. With the
+    // anthropometric prior every body gets ≈ the same circumferences, so the verdict would be a
+    // property of the prior, not of the user.
+    const reliable =
+      measurements.scaleSource === 'known_distance' && measurements.confidence.overall >= RELIABLE_FIT_MIN_CONFIDENCE;
+
     return {
+      reliable,
       chestEaseCm: chestEaseCm !== undefined ? Math.round(chestEaseCm * 10) / 10 : undefined,
       waistEaseCm: waistEaseCm !== undefined ? Math.round(waistEaseCm * 10) / 10 : undefined,
       hipEaseCm: hipEaseCm !== undefined ? Math.round(hipEaseCm * 10) / 10 : undefined,

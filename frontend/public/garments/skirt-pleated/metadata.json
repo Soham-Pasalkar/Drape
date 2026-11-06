@@ -12,9 +12,9 @@
     "hemSweepCm": 180
   },
   "modelDimensions": {
-    "width": 1.061,
+    "width": 0.716,
     "height": 0.82,
-    "depth": 0.833
+    "depth": 0.562
   },
   "modelAnchor": {
     "x": 0,
@@ -51,7 +51,7 @@
   "simulation": {
     "enabled": true,
     "substeps": 4,
-    "iterations": 8,
+    "iterations": 2,
     "stretchCompliance": 0.00015,
     "bendCompliance": 0.03,
     "skinAttachmentDist": 0.22,
@@ -65,5 +65,5 @@
     "commercialUsePermitted": true,
     "author": "DRAPE 3D Studio"
   },
-  "createdAt": "2026-11-06T12:29:41.839Z"
+  "createdAt": "2026-11-06T16:42:24.381Z"
 }

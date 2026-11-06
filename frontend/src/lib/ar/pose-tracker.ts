@@ -19,6 +19,21 @@ export interface PoseTrackerCallbacks {
   onError?: (error: Error) => void;
 }
 
+export interface PoseTrackerStats {
+  /** Pose inferences per second (EMA). */
+  inferenceFps: number;
+  /** Duration of the last detectForVideo call (ms). */
+  inferenceMs: number;
+  /** Monotonic count of processed video frames. */
+  frameCount: number;
+  delegate: 'GPU' | 'CPU' | 'none';
+}
+
+type VideoWithRVFC = HTMLVideoElement & {
+  requestVideoFrameCallback?: (cb: (now: number, metadata: { mediaTime: number }) => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
+};
+
 export class PoseTracker {
   private landmarker: PoseLandmarker | null = null;
   private smoother: LandmarkSmoother;
@@ -28,6 +43,10 @@ export class PoseTracker {
   private rafId: number | null = null;
   private lastTimestamp = -1;
   private currentStatus: TrackingStatus = 'idle';
+  private trackedVideo: VideoWithRVFC | null = null;
+  private lastMediaTime = -1;
+  private lastInferenceAt = 0;
+  public stats: PoseTrackerStats = { inferenceFps: 0, inferenceMs: 0, frameCount: 0, delegate: 'none' };
 
   constructor() {
     this.smoother = new LandmarkSmoother();
@@ -66,6 +85,7 @@ export class PoseTracker {
           },
           ...modelOptions,
         });
+        this.stats.delegate = 'GPU';
       } catch (gpuError) {
         console.warn('PoseTracker: GPU delegate unavailable, falling back to CPU', gpuError);
         this.landmarker = await PoseLandmarker.createFromOptions(vision, {
@@ -75,6 +95,7 @@ export class PoseTracker {
           },
           ...modelOptions,
         });
+        this.stats.delegate = 'CPU';
       }
 
       this.setStatus('camera_active');
@@ -107,8 +128,16 @@ export class PoseTracker {
     this.lastTimestamp = -1;
     this.smoother.reset();
 
-    const processFrame = () => {
+    this.trackedVideo = video as VideoWithRVFC;
+
+    const processFrame = (mediaTime?: number) => {
       if (!this.isTracking || !this.landmarker) return;
+      // requestVideoFrameCallback can fire for a re-presented frame; skip duplicates.
+      if (mediaTime !== undefined && mediaTime === this.lastMediaTime) {
+        this.scheduleNextFrame(video, processFrame);
+        return;
+      }
+      if (mediaTime !== undefined) this.lastMediaTime = mediaTime;
 
       try {
         if (
@@ -123,6 +152,14 @@ export class PoseTracker {
             this.lastTimestamp = now;
 
             const result = this.landmarker.detectForVideo(video, now);
+            const done = performance.now();
+            this.stats.inferenceMs = done - now;
+            this.stats.frameCount++;
+            if (this.lastInferenceAt > 0) {
+              const inst = 1000 / Math.max(1, done - this.lastInferenceAt);
+              this.stats.inferenceFps = this.stats.inferenceFps === 0 ? inst : this.stats.inferenceFps * 0.9 + inst * 0.1;
+            }
+            this.lastInferenceAt = done;
 
             if (result.landmarks && result.landmarks.length > 0 && result.landmarks[0].length >= 25) {
               const rawLandmarks: LandmarkPoint[] = result.landmarks[0].map((lm) => ({
@@ -172,14 +209,13 @@ export class PoseTracker {
     this.scheduleNextFrame(video, processFrame);
   }
 
-  private scheduleNextFrame(video: HTMLVideoElement, callback: () => void): void {
-    // Prefer requestVideoFrameCallback for exact frame synchronization if available
-    if ('requestVideoFrameCallback' in video) {
-      this.rvfcHandle = (video as any).requestVideoFrameCallback(() => {
-        callback();
-      });
+  private scheduleNextFrame(video: HTMLVideoElement, callback: (mediaTime?: number) => void): void {
+    const v = video as VideoWithRVFC;
+    // Prefer requestVideoFrameCallback: fires once per decoded camera frame.
+    if (typeof v.requestVideoFrameCallback === 'function') {
+      this.rvfcHandle = v.requestVideoFrameCallback((_now, metadata) => callback(metadata.mediaTime));
     } else {
-      this.rafId = requestAnimationFrame(callback);
+      this.rafId = requestAnimationFrame(() => callback());
     }
   }
 
@@ -192,9 +228,16 @@ export class PoseTracker {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    if (this.rvfcHandle !== null && this.trackedVideo?.cancelVideoFrameCallback) {
+      this.trackedVideo.cancelVideoFrameCallback(this.rvfcHandle);
+    }
     this.rvfcHandle = null;
+    this.trackedVideo = null;
     this.smoother.reset();
     this.lastTimestamp = -1;
+    this.lastMediaTime = -1;
+    this.lastInferenceAt = 0;
+    this.stats.inferenceFps = 0;
   }
 
   /**

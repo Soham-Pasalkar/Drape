@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "test:ar": "tsc src/lib/ar/one-euro-filter.ts src/lib/ar/camera-calibration.ts src/lib/ar/personalized-body-shape.ts src/lib/ar/garment-ease.ts src/lib/ar/operating-modes.ts src/lib/ar/mhr-body-proxy.ts src/lib/ar/xpbd-cloth-solver.ts src/lib/ar/coordinates.ts src/lib/ar/robust-pnp.ts src/lib/ar/fitting-engine.ts src/lib/ar/garment-registry.ts --module commonjs --target es2022 --outDir ./dist_test --moduleResolution node && node scripts/test-ar-subsystems.cjs && node scripts/test-camera-projection.cjs && node scripts/test-fitting-pipeline.cjs && rm -rf ./dist_test"
+    "test:ar": "node scripts/run-ar-tests.cjs",
+    "validate:garments": "node scripts/validate-garment-assets.cjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.2.2",

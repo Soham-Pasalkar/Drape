@@ -1,21 +1,26 @@
 /**
- * DRAPE Momentum Human Rig (MHR) Body Proxy Subsystem
+ * DRAPE Parametric Body Proxy
  *
- * Implements:
- * 1. Canonical MHR Joint Hierarchy & Kinematic Bones (Pelvis, Spine, Clavicles, Limbs).
- * 2. Parametric Body Surface with Elliptical Torso Cross-Sections & Capsule Limbs (~1,200 vertices LOD).
- * 3. Depth-Only Occlusion Mesh (colorWrite: false, depthWrite: true) for real-time foreground occlusion.
- * 4. Analytic Signed Distance Collision Surface for XPBD cloth simulation.
- * 5. Semantic Anchor Points (Neckline, Shoulder Caps, Waistline, Hemline).
+ * A simplified, MHR-*inspired* parametric torso (lofted elliptical cross-sections) plus
+ * capsule limbs. It is NOT a Momentum Human Rig reconstruction: it has ~200 torso vertices,
+ * no learned shape space and no skinning. It serves three purposes:
+ *   1. depth-only occluder (colorWrite = false) so the garment's far side is hidden;
+ *   2. collision surface (analytic SDF) for XPBD cloth;
+ *   3. triangle surface for garment-to-body correspondence.
+ *
+ * BODY-LOCAL FRAME (shared by PnP, garment anchors, correspondence and collision):
+ *   origin = midpoint of shoulder-centre and hip-centre landmarks (torso centre)
+ *   +X = wearer's left, +Y = up the spine, +Z = forward (out of the chest).
+ *   Units: metres. Shoulder joints at (±B/2, L/2, 0), hip joints at (±H/2, −L/2, 0).
  */
 
 import * as THREE from 'three';
-import { MHRJointName, JointTransform, BodyProxySkeleton } from './types';
+import { MHRJointName } from './types';
 
 export interface EllipticalCrossSection {
-  y: number; // Height along body Y axis in meters
-  semiMajorA: number; // Half-width (lateral / X)
-  semiMinorB: number; // Half-depth (anterior-posterior / Z)
+  y: number; // body-local height (m)
+  semiMajorA: number; // half-width along X (m)
+  semiMinorB: number; // half-depth along Z (m)
 }
 
 export interface CapsuleCollider {
@@ -25,341 +30,428 @@ export interface CapsuleCollider {
   radius: number;
 }
 
+/** Scale-bearing body parameters (metres). */
+export interface BodyShape {
+  /** Distance between shoulder landmarks (≈ glenohumeral joint centres). */
+  shoulderBreadthM: number;
+  /** Distance between hip landmarks (≈ hip joint centres). */
+  hipBreadthM: number;
+  /** Vertical distance shoulder-centre → hip-centre. */
+  torsoLengthM: number;
+  chest: { a: number; b: number };
+  waist: { a: number; b: number };
+  hips: { a: number; b: number };
+}
+
+/**
+ * Proxy shape priors. These are documented anatomical approximations, not measurements:
+ *  - NECK_ABOVE_SHOULDER_M: neck base sits ~12 cm above the shoulder-joint line.
+ *  - SHOULDER_SOFT_TISSUE_M: deltoid cap extends ~5 cm lateral to the joint centre
+ *    (equal to the upper-arm capsule radius, keeping arm and torso surfaces continuous).
+ *  - CHEST_DROP / WAIST_DROP: fraction of torso length below the shoulder line.
+ *  - SEAT_DROP_M: closes the torso ~10 cm below the hip joints (buttocks / upper thigh).
+ */
+export const BODY_PROXY_PRIORS = {
+  NECK_ABOVE_SHOULDER_M: 0.12,
+  NECK_RADIUS_M: { a: 0.065, b: 0.06 },
+  SHOULDER_SOFT_TISSUE_M: 0.05,
+  SHOULDER_DEPTH_RATIO: 0.48,
+  CHEST_DROP: 0.27,
+  WAIST_DROP: 0.68,
+  SEAT_DROP_M: 0.1,
+  SEAT_SCALE: 0.95,
+  UPPER_ARM_RADIUS_M: 0.05,
+  FOREARM_RADIUS_M: 0.04,
+  THIGH_RADIUS_M: 0.08,
+};
+
+export function defaultBodyShape(): BodyShape {
+  return {
+    shoulderBreadthM: 0.36,
+    hipBreadthM: 0.27,
+    torsoLengthM: 0.5,
+    chest: { a: 0.19, b: 0.124 },
+    waist: { a: 0.144, b: 0.098 },
+    hips: { a: 0.182, b: 0.124 },
+  };
+}
+
+export interface SignedDistanceResult {
+  distance: number; // metres, negative inside
+  normal: THREE.Vector3; // outward unit normal (body-local)
+}
+
+const RADIAL_SEGMENTS = 32;
+
 export class MHRBodyProxy {
-  public skeleton: BodyProxySkeleton;
   public group: THREE.Group;
-  public occlusionMesh: THREE.Mesh | null = null;
-  public debugMesh: THREE.Mesh | null = null;
+  public occlusionMesh: THREE.Mesh;
+  public debugMesh: THREE.Mesh;
 
-  // Cross sections along spine centered at mid-torso (y=0):
-  // Neck base (+0.34m), Shoulders (+0.22m), Chest (+0.10m), Waist (-0.08m), Pelvis (-0.22m)
-  private sections: EllipticalCrossSection[] = [
-    { y: 0.34, semiMajorA: 0.08, semiMinorB: 0.07 }, // Neck base
-    { y: 0.22, semiMajorA: 0.22, semiMinorB: 0.12 }, // Shoulders / Clavicles
-    { y: 0.10, semiMajorA: 0.20, semiMinorB: 0.13 }, // Chest / Bust
-    { y: -0.08, semiMajorA: 0.16, semiMinorB: 0.11 }, // Waist
-    { y: -0.22, semiMajorA: 0.19, semiMinorB: 0.13 }, // Pelvis / Hips
-  ];
+  private shape: BodyShape = defaultBodyShape();
+  private sections: EllipticalCrossSection[] = [];
+  private shapeVersion = 0;
 
-  // Capsule limb colliders
   private limbColliders: CapsuleCollider[] = [
-    { name: 'left_upper_arm', startJoint: 'left_shoulder', endJoint: 'left_elbow', radius: 0.05 },
-    { name: 'left_forearm', startJoint: 'left_elbow', endJoint: 'left_wrist', radius: 0.04 },
-    { name: 'right_upper_arm', startJoint: 'right_shoulder', endJoint: 'right_elbow', radius: 0.05 },
-    { name: 'right_forearm', startJoint: 'right_elbow', endJoint: 'right_wrist', radius: 0.04 },
-    { name: 'left_thigh', startJoint: 'left_hip', endJoint: 'left_knee', radius: 0.08 },
-    { name: 'right_thigh', startJoint: 'right_hip', endJoint: 'right_knee', radius: 0.08 },
+    { name: 'left_upper_arm', startJoint: 'left_shoulder', endJoint: 'left_elbow', radius: BODY_PROXY_PRIORS.UPPER_ARM_RADIUS_M },
+    { name: 'left_forearm', startJoint: 'left_elbow', endJoint: 'left_wrist', radius: BODY_PROXY_PRIORS.FOREARM_RADIUS_M },
+    { name: 'right_upper_arm', startJoint: 'right_shoulder', endJoint: 'right_elbow', radius: BODY_PROXY_PRIORS.UPPER_ARM_RADIUS_M },
+    { name: 'right_forearm', startJoint: 'right_elbow', endJoint: 'right_wrist', radius: BODY_PROXY_PRIORS.FOREARM_RADIUS_M },
+    { name: 'left_thigh', startJoint: 'left_hip', endJoint: 'left_knee', radius: BODY_PROXY_PRIORS.THIGH_RADIUS_M },
+    { name: 'right_thigh', startJoint: 'right_hip', endJoint: 'right_knee', radius: BODY_PROXY_PRIORS.THIGH_RADIUS_M },
   ];
+  /** Active capsule segments in body-local space (only those with tracked endpoints). */
+  private activeCapsules: { a: THREE.Vector3; b: THREE.Vector3; radius: number; name: string }[] = [];
+  /**
+   * Capsules that participate in the SDF (null = all). Arms lie OUTSIDE a top's torso panel,
+   * so for tops only the torso collides; skirts / dresses add the thighs (legs are inside).
+   */
+  private collisionCapsules: Set<string> | null = null;
 
+  private occlusionMaterial: THREE.MeshBasicMaterial;
   private limbOcclusionMeshes: Map<string, THREE.Mesh> = new Map();
   private limbDebugMeshes: Map<string, THREE.Mesh> = new Map();
+  private limbGeometry: THREE.CylinderGeometry;
+  private limbDebugMaterial: THREE.MeshBasicMaterial;
 
-  constructor() {
+  // scratch
+  private readonly _v = new THREE.Vector3();
+  private readonly _w = new THREE.Vector3();
+
+  constructor(shape: BodyShape = defaultBodyShape()) {
     this.group = new THREE.Group();
     this.group.name = 'mhr_body_proxy';
+    this.shape = { ...shape };
+    this.sections = MHRBodyProxy.sectionsFromShape(this.shape);
 
-    this.skeleton = this.createDefaultSkeleton();
-    this.buildBodyGeometry();
+    this.occlusionMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, depthTest: true });
+    const geometry = this.generateTorsoGeometry();
+    this.occlusionMesh = new THREE.Mesh(geometry, this.occlusionMaterial);
+    this.occlusionMesh.name = 'mhr_depth_occlusion';
+    this.occlusionMesh.renderOrder = 0;
+    this.group.add(this.occlusionMesh);
+
+    const debugMaterial = new THREE.MeshBasicMaterial({
+      color: 0x294bff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    });
+    this.debugMesh = new THREE.Mesh(geometry, debugMaterial); // shares geometry
+    this.debugMesh.name = 'mhr_debug_wireframe';
+    this.debugMesh.visible = false;
+    this.debugMesh.renderOrder = 3;
+    this.group.add(this.debugMesh);
+
+    this.limbGeometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1);
+    this.limbGeometry.translate(0, 0.5, 0); // origin at start joint, +Y towards end joint
+    this.limbDebugMaterial = new THREE.MeshBasicMaterial({
+      color: 0xd4ff00,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+    for (const c of this.limbColliders) {
+      const occ = new THREE.Mesh(this.limbGeometry, this.occlusionMaterial);
+      occ.name = `mhr_occlusion_${c.name}`;
+      occ.renderOrder = 0;
+      occ.visible = false;
+      this.group.add(occ);
+      this.limbOcclusionMeshes.set(c.name, occ);
+
+      const dbg = new THREE.Mesh(this.limbGeometry, this.limbDebugMaterial);
+      dbg.name = `mhr_debug_${c.name}`;
+      dbg.visible = false;
+      dbg.renderOrder = 3;
+      this.group.add(dbg);
+      this.limbDebugMeshes.set(c.name, dbg);
+    }
   }
 
-  private createDefaultSkeleton(): BodyProxySkeleton {
-    const joints: Record<MHRJointName, JointTransform> = {
-      pelvis: { name: 'pelvis', parent: null, position: [0, 0, 0], rotation: [0, 0, 0, 1] },
-      spine_navel: { name: 'spine_navel', parent: 'pelvis', position: [0, 0.16, 0], rotation: [0, 0, 0, 1] },
-      spine_chest: { name: 'spine_chest', parent: 'spine_navel', position: [0, 0.18, 0], rotation: [0, 0, 0, 1] },
-      neck: { name: 'neck', parent: 'spine_chest', position: [0, 0.16, 0], rotation: [0, 0, 0, 1] },
-      head: { name: 'head', parent: 'neck', position: [0, 0.12, 0], rotation: [0, 0, 0, 1] },
+  static sectionsFromShape(s: BodyShape): EllipticalCrossSection[] {
+    const P = BODY_PROXY_PRIORS;
+    const yS = s.torsoLengthM / 2;
+    const yH = -s.torsoLengthM / 2;
+    return [
+      { y: yS + P.NECK_ABOVE_SHOULDER_M, semiMajorA: P.NECK_RADIUS_M.a, semiMinorB: P.NECK_RADIUS_M.b },
+      {
+        y: yS,
+        semiMajorA: s.shoulderBreadthM / 2 + P.SHOULDER_SOFT_TISSUE_M,
+        semiMinorB: (s.shoulderBreadthM / 2 + P.SHOULDER_SOFT_TISSUE_M) * P.SHOULDER_DEPTH_RATIO,
+      },
+      { y: yS - P.CHEST_DROP * s.torsoLengthM, semiMajorA: s.chest.a, semiMinorB: s.chest.b },
+      { y: yS - P.WAIST_DROP * s.torsoLengthM, semiMajorA: s.waist.a, semiMinorB: s.waist.b },
+      { y: yH, semiMajorA: s.hips.a, semiMinorB: s.hips.b },
+      { y: yH - P.SEAT_DROP_M, semiMajorA: s.hips.a * P.SEAT_SCALE, semiMinorB: s.hips.b * P.SEAT_SCALE },
+    ];
+  }
 
-      left_clavicle: { name: 'left_clavicle', parent: 'spine_chest', position: [0.06, 0.08, 0], rotation: [0, 0, 0, 1] },
-      left_shoulder: { name: 'left_shoulder', parent: 'left_clavicle', position: [0.14, 0, 0], rotation: [0, 0, 0, 1] },
-      left_elbow: { name: 'left_elbow', parent: 'left_shoulder', position: [0.26, 0, 0], rotation: [0, 0, 0, 1] },
-      left_wrist: { name: 'left_wrist', parent: 'left_elbow', position: [0.24, 0, 0], rotation: [0, 0, 0, 1] },
+  getShape(): BodyShape {
+    return { ...this.shape, chest: { ...this.shape.chest }, waist: { ...this.shape.waist }, hips: { ...this.shape.hips } };
+  }
 
-      right_clavicle: { name: 'right_clavicle', parent: 'spine_chest', position: [-0.06, 0.08, 0], rotation: [0, 0, 0, 1] },
-      right_shoulder: { name: 'right_shoulder', parent: 'right_clavicle', position: [-0.14, 0, 0], rotation: [0, 0, 0, 1] },
-      right_elbow: { name: 'right_elbow', parent: 'right_shoulder', position: [-0.26, 0, 0], rotation: [0, 0, 0, 1] },
-      right_wrist: { name: 'right_wrist', parent: 'right_elbow', position: [-0.24, 0, 0], rotation: [0, 0, 0, 1] },
+  getSections(): readonly EllipticalCrossSection[] {
+    return this.sections;
+  }
 
-      left_hip: { name: 'left_hip', parent: 'pelvis', position: [0.10, -0.06, 0], rotation: [0, 0, 0, 1] },
-      left_knee: { name: 'left_knee', parent: 'left_hip', position: [0, -0.42, 0], rotation: [0, 0, 0, 1] },
-      left_ankle: { name: 'left_ankle', parent: 'left_knee', position: [0, -0.40, 0], rotation: [0, 0, 0, 1] },
+  /** Incremented whenever the surface geometry changes (correspondence must be rebuilt). */
+  get version(): number {
+    return this.shapeVersion;
+  }
 
-      right_hip: { name: 'right_hip', parent: 'pelvis', position: [-0.10, -0.06, 0], rotation: [0, 0, 0, 1] },
-      right_knee: { name: 'right_knee', parent: 'right_hip', position: [0, -0.42, 0], rotation: [0, 0, 0, 1] },
-      right_ankle: { name: 'right_ankle', parent: 'right_knee', position: [0, -0.40, 0], rotation: [0, 0, 0, 1] },
-    };
+  /** Body-local semantic attachment anchors. */
+  getAttachmentAnchor(type: 'shoulder_center' | 'waist_center' | 'neckline_center', out = new THREE.Vector3()): THREE.Vector3 {
+    switch (type) {
+      case 'shoulder_center':
+        return out.set(0, this.sections[1].y, 0);
+      case 'neckline_center':
+        return out.set(0, this.sections[0].y, 0);
+      case 'waist_center':
+        return out.set(0, this.sections[3].y, 0);
+    }
+  }
 
-    return {
-      rootPosition: [0, 0, -1.6],
-      rootRotation: [0, 0, 0, 1],
-      joints,
-      estimatedDistanceZ: 1.6,
-    };
+  getJointPosition(name: 'left_shoulder' | 'right_shoulder' | 'left_hip' | 'right_hip', out = new THREE.Vector3()): THREE.Vector3 {
+    const s = this.shape;
+    switch (name) {
+      case 'left_shoulder':
+        return out.set(s.shoulderBreadthM / 2, s.torsoLengthM / 2, 0);
+      case 'right_shoulder':
+        return out.set(-s.shoulderBreadthM / 2, s.torsoLengthM / 2, 0);
+      case 'left_hip':
+        return out.set(s.hipBreadthM / 2, -s.torsoLengthM / 2, 0);
+      case 'right_hip':
+        return out.set(-s.hipBreadthM / 2, -s.torsoLengthM / 2, 0);
+    }
   }
 
   /**
-   * Updates body proxy shape cross-sections based on personalized measurements.
+   * Replaces the body shape. Returns true when the surface changed by more than
+   * `toleranceM` anywhere (so callers can skip rebuilding correspondence for noise).
    */
+  setShape(shape: BodyShape, toleranceM = 0.003): boolean {
+    const next = MHRBodyProxy.sectionsFromShape(shape);
+    let maxDelta = 0;
+    for (let i = 0; i < next.length; i++) {
+      maxDelta = Math.max(
+        maxDelta,
+        Math.abs(next[i].y - this.sections[i].y),
+        Math.abs(next[i].semiMajorA - this.sections[i].semiMajorA),
+        Math.abs(next[i].semiMinorB - this.sections[i].semiMinorB)
+      );
+    }
+    if (maxDelta <= toleranceM) return false;
+    this.shape = { ...shape };
+    this.sections = next;
+    this.writeTorsoPositions(this.occlusionMesh.geometry);
+    this.shapeVersion++;
+    return true;
+  }
+
+  /** Backward-compatible helper: circumferences in metres → ellipse semi-axes. */
   updateSectionsFromMeasurements(
     shoulderBreadthM: number,
     chestCircumferenceM: number,
     waistCircumferenceM: number,
     hipCircumferenceM: number
-  ): void {
-    // Shoulder section (index 1)
-    this.sections[1].semiMajorA = Math.max(0.16, shoulderBreadthM / 2.0);
-    this.sections[1].semiMinorB = this.sections[1].semiMajorA * 0.55;
-
-    // Chest section (index 2): C ≈ 2π * sqrt((a^2 + b^2)/2), assuming b ≈ 0.65a
-    // C ≈ 2π * a * sqrt((1 + 0.4225)/2) ≈ 2π * a * 0.843 ≈ 5.30 a => a ≈ C / 5.30
-    const chestA = Math.max(0.14, chestCircumferenceM / 5.30);
-    this.sections[2].semiMajorA = chestA;
-    this.sections[2].semiMinorB = chestA * 0.65;
-
-    // Waist section (index 3)
-    const waistA = Math.max(0.12, waistCircumferenceM / 5.25);
-    this.sections[3].semiMajorA = waistA;
-    this.sections[3].semiMinorB = waistA * 0.68;
-
-    // Hip section (index 4)
-    const hipA = Math.max(0.15, hipCircumferenceM / 5.35);
-    this.sections[4].semiMajorA = hipA;
-    this.sections[4].semiMinorB = hipA * 0.68;
-
-    this.rebuildTorsoMesh();
+  ): boolean {
+    // For b = k·a, Ramanujan C ≈ π·a·[3(1+k) − √((3+k)(1+3k))]
+    const semiFromC = (C: number, k: number) => C / (Math.PI * (3 * (1 + k) - Math.sqrt((3 + k) * (1 + 3 * k))));
+    const chestA = semiFromC(chestCircumferenceM, 0.65);
+    const waistA = semiFromC(waistCircumferenceM, 0.68);
+    const hipA = semiFromC(hipCircumferenceM, 0.68);
+    return this.setShape({
+      ...this.shape,
+      shoulderBreadthM,
+      chest: { a: chestA, b: chestA * 0.65 },
+      waist: { a: waistA, b: waistA * 0.68 },
+      hips: { a: hipA, b: hipA * 0.68 },
+    });
   }
 
   /**
-   * Builds the procedural 3D surface mesh for depth occlusion and collision.
-   */
-  private buildBodyGeometry(): void {
-    const geometry = this.generateTorsoGeometry();
-
-    // 1. Depth-Only Occlusion Material:
-    // Writes to depth buffer so foreground body parts (arms, hands) clip behind-body garment parts,
-    // but writes no color pixels over the live webcam stream!
-    const occlusionMaterial = new THREE.MeshBasicMaterial({
-      colorWrite: false,
-      depthWrite: true,
-      depthTest: true,
-    });
-
-    this.occlusionMesh = new THREE.Mesh(geometry, occlusionMaterial);
-    this.occlusionMesh.name = 'mhr_depth_occlusion';
-    this.occlusionMesh.renderOrder = 0; // Render first into depth buffer
-    this.group.add(this.occlusionMesh);
-
-    // 2. Debug Mesh (Visible only during calibration or debug mode)
-    const debugMaterial = new THREE.MeshBasicMaterial({
-      color: 0x294bff,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.15,
-      depthWrite: false,
-    });
-    this.debugMesh = new THREE.Mesh(geometry.clone(), debugMaterial);
-    this.debugMesh.name = 'mhr_debug_wireframe';
-    this.debugMesh.visible = false;
-    this.group.add(this.debugMesh);
-
-    // 3. Procedural Limb Capsule Meshes for Arm Occlusion and Collision
-    for (const collider of this.limbColliders) {
-      const cylGeom = new THREE.CylinderGeometry(collider.radius, collider.radius, 1.0, 10, 1);
-      cylGeom.translate(0, 0.5, 0); // Origin at start joint
-
-      const occMesh = new THREE.Mesh(cylGeom, occlusionMaterial);
-      occMesh.name = `mhr_occlusion_${collider.name}`;
-      occMesh.renderOrder = 0;
-      occMesh.visible = false;
-      this.group.add(occMesh);
-      this.limbOcclusionMeshes.set(collider.name, occMesh);
-
-      const dbgMat = new THREE.MeshBasicMaterial({
-        color: 0xd4ff00,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.35,
-        depthWrite: false,
-      });
-      const dbgMesh = new THREE.Mesh(cylGeom.clone(), dbgMat);
-      dbgMesh.name = `mhr_debug_${collider.name}`;
-      dbgMesh.visible = false;
-      this.group.add(dbgMesh);
-      this.limbDebugMeshes.set(collider.name, dbgMesh);
-    }
-  }
-
-  /**
-   * Updates limb collider & occlusion capsules from 3D joint positions in local proxy space.
+   * Updates limb capsules from body-local joint positions. Missing endpoints disable the
+   * capsule for both occlusion and collision.
    */
   updateLimbs(jointPositions: Partial<Record<MHRJointName, THREE.Vector3>>): void {
-    const vUp = new THREE.Vector3(0, 1, 0);
-
-    for (const collider of this.limbColliders) {
-      const p1 = jointPositions[collider.startJoint];
-      const p2 = jointPositions[collider.endJoint];
-      const occMesh = this.limbOcclusionMeshes.get(collider.name);
-      const dbgMesh = this.limbDebugMeshes.get(collider.name);
-
-      if (p1 && p2 && occMesh && dbgMesh) {
-        const delta = p2.clone().sub(p1);
-        const len = delta.length();
-
-        if (len > 0.05) {
-          const dir = delta.clone().normalize();
-          const quat = new THREE.Quaternion().setFromUnitVectors(vUp, dir);
-
-          occMesh.position.copy(p1);
-          occMesh.quaternion.copy(quat);
-          occMesh.scale.set(1, len, 1);
-          occMesh.visible = true;
-
-          dbgMesh.position.copy(p1);
-          dbgMesh.quaternion.copy(quat);
-          dbgMesh.scale.set(1, len, 1);
-        } else {
-          occMesh.visible = false;
-          dbgMesh.visible = false;
-        }
+    this.activeCapsules = [];
+    const up = this._w.set(0, 1, 0);
+    for (const c of this.limbColliders) {
+      const p1 = jointPositions[c.startJoint];
+      const p2 = jointPositions[c.endJoint];
+      const occ = this.limbOcclusionMeshes.get(c.name)!;
+      const dbg = this.limbDebugMeshes.get(c.name)!;
+      const len = p1 && p2 ? p1.distanceTo(p2) : 0;
+      if (p1 && p2 && len > 0.05) {
+        const dir = this._v.copy(p2).sub(p1).divideScalar(len);
+        occ.position.copy(p1);
+        occ.quaternion.setFromUnitVectors(up, dir);
+        occ.scale.set(c.radius, len, c.radius);
+        occ.visible = true;
+        dbg.position.copy(occ.position);
+        dbg.quaternion.copy(occ.quaternion);
+        dbg.scale.copy(occ.scale);
+        this.activeCapsules.push({ a: p1.clone(), b: p2.clone(), radius: c.radius, name: c.name });
+      } else {
+        occ.visible = false;
+        dbg.visible = false;
       }
     }
+    this.syncDebugLimbVisibility();
   }
 
-  private rebuildTorsoMesh(): void {
-    const newGeom = this.generateTorsoGeometry();
-    if (this.occlusionMesh) {
-      this.occlusionMesh.geometry.dispose();
-      this.occlusionMesh.geometry = newGeom;
+  private debugVisible = false;
+  private syncDebugLimbVisibility(): void {
+    this.limbDebugMeshes.forEach((dbg, name) => {
+      dbg.visible = this.debugVisible && this.limbOcclusionMeshes.get(name)!.visible;
+    });
+  }
+
+  setCollisionCapsules(names: string[] | null): void {
+    this.collisionCapsules = names ? new Set(names) : null;
+  }
+
+  /** Interpolated torso cross-section at body-local height y, or null outside the torso. */
+  sectionAt(y: number): { a: number; b: number; dadY: number; dbdY: number } | null {
+    const s = this.sections;
+    if (y > s[0].y || y < s[s.length - 1].y) return null;
+    for (let i = 0; i < s.length - 1; i++) {
+      const hi = s[i];
+      const lo = s[i + 1];
+      if (y <= hi.y && y >= lo.y) {
+        const span = hi.y - lo.y;
+        const t = span > 1e-9 ? (hi.y - y) / span : 0;
+        return {
+          a: hi.semiMajorA + (lo.semiMajorA - hi.semiMajorA) * t,
+          b: hi.semiMinorB + (lo.semiMinorB - hi.semiMinorB) * t,
+          dadY: span > 1e-9 ? (hi.semiMajorA - lo.semiMajorA) / span : 0,
+          dbdY: span > 1e-9 ? (hi.semiMinorB - lo.semiMinorB) / span : 0,
+        };
+      }
     }
-    if (this.debugMesh) {
-      this.debugMesh.geometry.dispose();
-      this.debugMesh.geometry = newGeom.clone();
-    }
+    return null;
   }
 
   /**
-   * Generates a smooth lofted mesh across the elliptical cross-sections.
-   * Total vertex count: (sections.length * radialSegments) ≈ 5 * 24 = 120 vertices per torso layer,
-   * plus limb capsules, totaling ~1,200 triangles, strictly within specified LOD budget.
+   * Signed distance (metres) of a BODY-LOCAL point to the torso ∪ active limb capsules,
+   * with the outward normal (body-local). Torso distance uses the first-order ellipse
+   * distance d ≈ F/|∇F| with F = k − 1, k = √((x/a)² + (z/b)²); exact on the surface and
+   * accurate to O(d²) nearby. Points above/below the torso ends only see the capsules.
    */
+  signedDistance(x: number, y: number, z: number, out?: SignedDistanceResult): SignedDistanceResult {
+    const res: SignedDistanceResult = out ?? { distance: Infinity, normal: new THREE.Vector3(0, 0, 1) };
+    res.distance = Infinity;
+
+    const sec = this.sectionAt(y);
+    if (sec) {
+      const { a, b } = sec;
+      const k = Math.sqrt((x * x) / (a * a) + (z * z) / (b * b));
+      if (k < 1e-6) {
+        res.distance = -Math.min(a, b);
+        res.normal.set(0, 0, 1);
+      } else {
+        // ∂k/∂x = x/(a²k), ∂k/∂z = z/(b²k), ∂k/∂y via the section taper.
+        const gx = x / (a * a * k);
+        const gz = z / (b * b * k);
+        const gy = -((x * x) / (a * a * a) * sec.dadY + (z * z) / (b * b * b) * sec.dbdY) / k;
+        const g = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        res.distance = (k - 1) / g;
+        res.normal.set(gx / g, gy / g, gz / g);
+      }
+    }
+
+    for (const c of this.activeCapsules) {
+      if (this.collisionCapsules && !this.collisionCapsules.has(c.name)) continue;
+      const ab = this._v.copy(c.b).sub(c.a);
+      const t = Math.max(0, Math.min(1, ((x - c.a.x) * ab.x + (y - c.a.y) * ab.y + (z - c.a.z) * ab.z) / ab.lengthSq()));
+      const px = c.a.x + ab.x * t;
+      const py = c.a.y + ab.y * t;
+      const pz = c.a.z + ab.z * t;
+      const dx = x - px;
+      const dy = y - py;
+      const dz = z - pz;
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const d = len - c.radius;
+      if (d < res.distance) {
+        res.distance = d;
+        if (len > 1e-9) res.normal.set(dx / len, dy / len, dz / len);
+      }
+    }
+    return res;
+  }
+
+  /** Backward-compatible scalar SDF (body-local input). */
+  getSignedDistance(x: number, y: number, z: number): number {
+    return this.signedDistance(x, y, z).distance;
+  }
+
+  /** Torso surface triangles in body-local space (fixed topology for all shapes). */
+  getSurfaceMesh(): { positions: Float32Array; indices: Uint32Array } {
+    const geom = this.occlusionMesh.geometry;
+    const pos = geom.getAttribute('position') as THREE.BufferAttribute;
+    const idx = geom.getIndex()!;
+    return { positions: new Float32Array(pos.array as Float32Array), indices: new Uint32Array(idx.array as ArrayLike<number>) };
+  }
+
   private generateTorsoGeometry(): THREE.BufferGeometry {
     const geom = new THREE.BufferGeometry();
-    const vertices: number[] = [];
-    const normals: number[] = [];
+    const n = this.sections.length * (RADIAL_SEGMENTS + 1);
+    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    geom.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
     const indices: number[] = [];
-
-    const radialSegments = 24;
-
-    for (let i = 0; i < this.sections.length; i++) {
-      const sec = this.sections[i];
-      for (let j = 0; j <= radialSegments; j++) {
-        const theta = (j / radialSegments) * Math.PI * 2.0;
-        const x = Math.sin(theta) * sec.semiMajorA;
-        const z = Math.cos(theta) * sec.semiMinorB;
-        const y = sec.y;
-
-        vertices.push(x, y, z);
-
-        // Approximate normal for ellipse: (sin(theta)/a, 0, cos(theta)/b) normalized
-        const nx = Math.sin(theta) / sec.semiMajorA;
-        const nz = Math.cos(theta) / sec.semiMinorB;
-        const nLen = Math.hypot(nx, nz) || 1.0;
-        normals.push(nx / nLen, 0, nz / nLen);
-      }
-    }
-
     for (let i = 0; i < this.sections.length - 1; i++) {
-      for (let j = 0; j < radialSegments; j++) {
-        const a = i * (radialSegments + 1) + j;
-        const b = (i + 1) * (radialSegments + 1) + j;
-        const c = (i + 1) * (radialSegments + 1) + (j + 1);
-        const d = i * (radialSegments + 1) + (j + 1);
-
-        indices.push(a, b, d);
-        indices.push(b, c, d);
+      for (let j = 0; j < RADIAL_SEGMENTS; j++) {
+        const a = i * (RADIAL_SEGMENTS + 1) + j;
+        const b = (i + 1) * (RADIAL_SEGMENTS + 1) + j;
+        const c = b + 1;
+        const d = a + 1;
+        // Counter-clockwise when seen from outside (outward-facing winding).
+        indices.push(a, b, d, b, c, d);
       }
     }
-
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geom.setIndex(indices);
-    geom.computeVertexNormals();
+    this.writeTorsoPositions(geom);
     return geom;
   }
 
-  /**
-   * Analytic Signed Distance Field (SDF) evaluation against the body proxy torso.
-   * Returns distance in meters: negative inside body, positive outside.
-   */
-  getSignedDistance(x: number, y: number, z: number): number {
-    // Clamp Y to torso bounds
-    const topY = this.sections[0].y;
-    const botY = this.sections[this.sections.length - 1].y;
-
-    const clampedY = Math.min(topY, Math.max(botY, y));
-    const t = (topY - clampedY) / (topY - botY);
-
-    // Interpolate semi-axes along Y
-    const secIdx = Math.min(
-      this.sections.length - 2,
-      Math.max(0, Math.floor(t * (this.sections.length - 1)))
-    );
-    const secA = this.sections[secIdx];
-    const secB = this.sections[secIdx + 1];
-    const localT = (topY - clampedY - secA.y * (topY - botY)) / 0.15;
-    const factor = Math.max(0, Math.min(1, localT));
-
-    const semiA = secA.semiMajorA * (1.0 - factor) + secB.semiMajorA * factor;
-    const semiB = secA.semiMinorB * (1.0 - factor) + secB.semiMinorB * factor;
-
-    // Ellipse algebraic distance approximation: (x/a)^2 + (z/b)^2 - 1
-    const distSq = (x * x) / (semiA * semiA) + (z * z) / (semiB * semiB);
-    const approxDist = (Math.sqrt(distSq) - 1.0) * Math.min(semiA, semiB);
-
-    return approxDist;
+  private writeTorsoPositions(geom: THREE.BufferGeometry): void {
+    const pos = geom.getAttribute('position') as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    let k = 0;
+    for (const sec of this.sections) {
+      for (let j = 0; j <= RADIAL_SEGMENTS; j++) {
+        const theta = (j / RADIAL_SEGMENTS) * Math.PI * 2;
+        arr[k++] = Math.sin(theta) * sec.semiMajorA;
+        arr[k++] = sec.y;
+        arr[k++] = Math.cos(theta) * sec.semiMinorB;
+      }
+    }
+    pos.needsUpdate = true;
+    geom.computeVertexNormals();
+    geom.computeBoundingBox();
+    geom.computeBoundingSphere();
   }
 
-  /**
-   * Sets root transformation in camera space.
-   */
-  setRootTransform(
-    position: [number, number, number],
-    quaternion: [number, number, number, number]
-  ): void {
+  setRootTransform(position: [number, number, number], quaternion: [number, number, number, number]): void {
     this.group.position.set(position[0], position[1], position[2]);
     this.group.quaternion.set(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
-    this.skeleton.rootPosition = position;
-    this.skeleton.rootRotation = quaternion;
   }
 
   setDebugVisible(visible: boolean): void {
-    if (this.debugMesh) {
-      this.debugMesh.visible = visible;
-    }
-    this.limbDebugMeshes.forEach((dbg) => {
-      dbg.visible = visible;
-    });
+    this.debugVisible = visible;
+    this.debugMesh.visible = visible;
+    this.syncDebugLimbVisibility();
   }
 
   dispose(): void {
-    if (this.occlusionMesh) {
-      this.occlusionMesh.geometry.dispose();
-      (this.occlusionMesh.material as THREE.Material).dispose();
-    }
-    if (this.debugMesh) {
-      this.debugMesh.geometry.dispose();
-      (this.debugMesh.material as THREE.Material).dispose();
-    }
-    this.limbOcclusionMeshes.forEach((occ) => {
-      occ.geometry.dispose();
-      (occ.material as THREE.Material).dispose();
-    });
-    this.limbDebugMeshes.forEach((dbg) => {
-      dbg.geometry.dispose();
-      (dbg.material as THREE.Material).dispose();
-    });
+    this.occlusionMesh.geometry.dispose();
+    this.occlusionMaterial.dispose();
+    (this.debugMesh.material as THREE.Material).dispose();
+    this.limbGeometry.dispose();
+    this.limbDebugMaterial.dispose();
     this.limbOcclusionMeshes.clear();
     this.limbDebugMeshes.clear();
   }
 }
-

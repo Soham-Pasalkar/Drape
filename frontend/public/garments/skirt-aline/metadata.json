@@ -12,9 +12,9 @@
     "hemSweepCm": 140
   },
   "modelDimensions": {
-    "width": 0.811,
+    "width": 0.526,
     "height": 0.66,
-    "depth": 0.637
+    "depth": 0.414
   },
   "modelAnchor": {
     "x": 0,
@@ -64,5 +64,5 @@
     "commercialUsePermitted": true,
     "author": "DRAPE 3D Studio"
   },
-  "createdAt": "2026-11-06T12:29:41.837Z"
+  "createdAt": "2026-11-06T16:42:24.379Z"
 }

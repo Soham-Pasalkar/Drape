@@ -17,8 +17,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/tshirt-crewneck/model.glb',
     thumbnailPath: '/garments/tshirt-crewneck/thumbnail.svg',
     dimensions: { chestCm: 98, waistCm: 90, lengthCm: 66, shoulderSpanCm: 46 },
-    modelDimensions: { width: 0.573, height: 0.659, depth: 0.197 },
-    modelAnchor: { x: 0, y: 0.2772, z: 0, type: 'shoulder_center' },
+    modelDimensions: { width: 0.858, height: 0.659, depth: 0.197 },
+    modelAnchor: { x: 0, y: 0.2572, z: 0, type: 'shoulder_center' },
+    construction: { sleeves: 'short', simulationMesh: 'torso' },
     fittingProfile: {
       category: 'tops',
       anchor: 'torso',
@@ -68,8 +69,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/tshirt-oversized/model.glb',
     thumbnailPath: '/garments/tshirt-oversized/thumbnail.svg',
     dimensions: { chestCm: 116, waistCm: 110, lengthCm: 74, shoulderSpanCm: 56 },
-    modelDimensions: { width: 0.675, height: 0.737, depth: 0.24 },
-    modelAnchor: { x: 0, y: 0.3108, z: 0, type: 'shoulder_center' },
+    modelDimensions: { width: 1.089, height: 0.737, depth: 0.24 },
+    modelAnchor: { x: 0, y: 0.2908, z: 0, type: 'shoulder_center' },
+    construction: { sleeves: 'short', simulationMesh: 'torso' },
     fittingProfile: {
       category: 'tops',
       anchor: 'torso',
@@ -119,8 +121,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/tshirt-fitted/model.glb',
     thumbnailPath: '/garments/tshirt-fitted/thumbnail.svg',
     dimensions: { chestCm: 88, waistCm: 76, lengthCm: 60, shoulderSpanCm: 40 },
-    modelDimensions: { width: 0.494, height: 0.599, depth: 0.173 },
-    modelAnchor: { x: 0, y: 0.252, z: 0, type: 'shoulder_center' },
+    modelDimensions: { width: 0.725, height: 0.599, depth: 0.173 },
+    modelAnchor: { x: 0, y: 0.232, z: 0, type: 'shoulder_center' },
+    construction: { sleeves: 'short', simulationMesh: 'torso' },
     fittingProfile: {
       category: 'tops',
       anchor: 'torso',
@@ -170,8 +173,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/top-longsleeve/model.glb',
     thumbnailPath: '/garments/top-longsleeve/thumbnail.svg',
     dimensions: { chestCm: 94, waistCm: 84, lengthCm: 65, shoulderSpanCm: 44 },
-    modelDimensions: { width: 0.528, height: 0.649, depth: 0.185 },
-    modelAnchor: { x: 0, y: 0.273, z: 0, type: 'shoulder_center' },
+    modelDimensions: { width: 1.261, height: 0.649, depth: 0.185 },
+    modelAnchor: { x: 0, y: 0.253, z: 0, type: 'shoulder_center' },
+    construction: { sleeves: 'long', simulationMesh: 'torso' },
     fittingProfile: {
       category: 'tops',
       anchor: 'torso',
@@ -221,8 +225,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/top-sleeveless/model.glb',
     thumbnailPath: '/garments/top-sleeveless/thumbnail.svg',
     dimensions: { chestCm: 90, waistCm: 80, lengthCm: 54, shoulderSpanCm: 38 },
-    modelDimensions: { width: 0.488, height: 0.54, depth: 0.165 },
-    modelAnchor: { x: 0, y: 0.2268, z: 0, type: 'shoulder_center' },
+    modelDimensions: { width: 0.515, height: 0.54, depth: 0.165 },
+    modelAnchor: { x: 0, y: 0.2068, z: 0, type: 'shoulder_center' },
+    construction: { sleeves: 'none', simulationMesh: 'torso' },
     fittingProfile: {
       category: 'tops',
       anchor: 'torso',
@@ -273,8 +278,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/skirt-aline/model.glb',
     thumbnailPath: '/garments/skirt-aline/thumbnail.svg',
     dimensions: { waistCm: 72, hipsCm: 98, lengthCm: 62, hemSweepCm: 140 },
-    modelDimensions: { width: 0.811, height: 0.66, depth: 0.637 },
+    modelDimensions: { width: 0.526, height: 0.66, depth: 0.414 },
     modelAnchor: { x: 0, y: 0.04, z: 0, type: 'waist_center' },
+    construction: { sleeves: 'none', simulationMesh: 'skirt_body' },
     fittingProfile: {
       category: 'skirts',
       anchor: 'hips',
@@ -324,8 +330,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/skirt-pleated/model.glb',
     thumbnailPath: '/garments/skirt-pleated/thumbnail.svg',
     dimensions: { waistCm: 68, hipsCm: 94, lengthCm: 78, hemSweepCm: 180 },
-    modelDimensions: { width: 1.061, height: 0.82, depth: 0.833 },
+    modelDimensions: { width: 0.716, height: 0.82, depth: 0.562 },
     modelAnchor: { x: 0, y: 0.04, z: 0, type: 'waist_center' },
+    construction: { sleeves: 'none', simulationMesh: 'skirt_body' },
     fittingProfile: {
       category: 'skirts',
       anchor: 'hips',
@@ -353,7 +360,7 @@ export const GARMENTS: GarmentMetadata[] = [
     simulation: {
       enabled: true,
       substeps: 4,
-      iterations: 8,
+      iterations: 2, // profiled: 8 iterations cost 3.4× with no strain benefit on this mesh
       stretchCompliance: 0.00015,
       bendCompliance: 0.03, // Fluid pleat dynamics
       skinAttachmentDist: 0.22,
@@ -376,8 +383,9 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/dress-midi/model.glb',
     thumbnailPath: '/garments/dress-midi/thumbnail.svg',
     dimensions: { chestCm: 92, waistCm: 72, hipsCm: 96, lengthCm: 114, hemSweepCm: 110 },
-    modelDimensions: { width: 0.575, height: 1.14, depth: 0.279 },
+    modelDimensions: { width: 0.575, height: 1.14, depth: 0.287 },
     modelAnchor: { x: 0, y: 0.42, z: 0, type: 'shoulder_center' },
+    construction: { sleeves: 'none', simulationMesh: 'dress_mesh' },
     fittingProfile: {
       category: 'dresses',
       anchor: 'full_body',

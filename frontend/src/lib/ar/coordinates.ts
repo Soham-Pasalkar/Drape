@@ -1,159 +1,243 @@
 /**
- * DRAPE Explicit Coordinate Transformations & Projection Subsystem
+ * DRAPE AR coordinate contract.
  *
- * Provides mathematically exact, bidirectional transformations between:
- * - MediaPipe Normalized Image Space [0, 1] x [0, 1]
- * - Uncropped Camera Sensor Image Pixels [0, W] x [0, H]
- * - Viewport Display Coordinates (with letterbox / contain alignment)
- * - Three.js Metric Camera Space (X: Right, Y: Up, -Z: Forward into scene)
- * - Normalized Device Coordinates (NDC) [-1, 1] x [-1, 1]
- * - Screen / DOM Canvas Pixels
+ * Every AR computation states which of these spaces it is in:
+ *
+ *  1. NORMALIZED IMAGE  (MediaPipe output)  n = (x, y) ∈ [0,1]², origin top-left of the
+ *     *unmirrored* sensor frame, +x right, +y down.
+ *  2. IMAGE PIXELS      p = (u, v) = (x·W, y·H), W×H = video.videoWidth × videoHeight.
+ *  3. CONTAINER (DOM)   d = (dx, dy) CSS pixels inside the viewport element, origin top-left,
+ *     *before* the shared mirror transform is applied (see MIRRORING POLICY).
+ *  4. NDC               (ndcX, ndcY) ∈ [-1,1]², +y up, covering the full container/canvas.
+ *  5. CAMERA (metric)   Three.js convention: camera at origin, +X right, +Y up, looking down -Z.
+ *     Pinhole model with depth d = -Z > 0:
+ *        u = fx · X / d + cx
+ *        v = -fy · Y / d + cy        (image v grows downward, camera Y grows upward)
+ *
+ * MIRRORING POLICY (single reflection):
+ *   All math above operates on the true, unmirrored sensor image. The projection matrix,
+ *   PnP, landmarks and overlays are never mirrored. For a selfie preview the UI applies ONE
+ *   CSS `scaleX(-1)` to a wrapper that contains the <video>, the WebGL canvas and the 2D
+ *   overlay canvases together. Because every layer receives the same reflection about the
+ *   container's vertical centre line, they remain pixel-aligned. Do not mirror any layer
+ *   individually and do not negate projection-matrix elements.
+ *
+ * VIDEO DISPLAY TRANSFORM:
+ *   CSS object-fit maps image pixels to container pixels by a uniform scale plus offset:
+ *      dx = u · s + ox,   dy = v · s + oy
+ *   cover:   s = max(Cw/W, Ch/H)   (offset ≤ 0: the overflow is cropped)
+ *   contain: s = min(Cw/W, Ch/H)   (offset ≥ 0: letter/pillar-boxing)
+ *   fill:    sx = Cw/W, sy = Ch/H  (non-uniform; supported for completeness)
+ *   Offsets follow CSS object-position: o = (C - displaySize) · fraction, default 0.5.
+ *   Device pixel ratio does not enter: the WebGL canvas is sized in CSS pixels and NDC is
+ *   resolution-independent.
  */
 
 import * as THREE from 'three';
 import { CameraIntrinsics } from './types';
 
-export interface ViewportRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  scale: number;
+export type ObjectFit = 'cover' | 'contain' | 'fill';
+
+export interface VideoDisplayTransform {
+  fit: ObjectFit;
+  videoWidth: number;
+  videoHeight: number;
+  containerWidth: number;
+  containerHeight: number;
+  /** Horizontal / vertical scale image px → container px (equal unless fit = 'fill'). */
+  scaleX: number;
+  scaleY: number;
+  /** Container-space position of image pixel (0,0). Negative = cropped (cover). */
+  offsetX: number;
+  offsetY: number;
+  /** Size of the full (uncropped) video as laid out in the container. */
+  displayWidth: number;
+  displayHeight: number;
+  /** Image-pixel rectangle that is actually visible in the container. */
+  visibleImageRect: { u0: number; v0: number; u1: number; v1: number };
+}
+
+export interface Vec2 {
+  x: number;
+  y: number;
 }
 
 /**
- * Computes exact render bounds for 'contain' fitting of a video stream
- * inside an arbitrary container without stretching or cropping.
+ * Computes the CSS object-fit transform for a video inside a container.
+ * `objectPosition` is the CSS object-position as fractions (0.5, 0.5 = centred, the default).
  */
-export function computeContainViewport(
+export function computeVideoDisplayTransform(
   videoWidth: number,
   videoHeight: number,
   containerWidth: number,
-  containerHeight: number
-): ViewportRect {
-  if (videoWidth <= 0 || videoHeight <= 0 || containerWidth <= 0 || containerHeight <= 0) {
-    return { left: 0, top: 0, width: containerWidth, height: containerHeight, scale: 1.0 };
-  }
+  containerHeight: number,
+  fit: ObjectFit = 'cover',
+  objectPosition: Vec2 = { x: 0.5, y: 0.5 }
+): VideoDisplayTransform {
+  const W = Math.max(1, videoWidth);
+  const H = Math.max(1, videoHeight);
+  const Cw = Math.max(1, containerWidth);
+  const Ch = Math.max(1, containerHeight);
 
-  const videoAspect = videoWidth / videoHeight;
-  const containerAspect = containerWidth / containerHeight;
-
-  let renderWidth: number;
-  let renderHeight: number;
-  let left = 0;
-  let top = 0;
-
-  if (containerAspect > videoAspect) {
-    // Container is wider than video => pillarbox (black bars on left & right)
-    renderHeight = containerHeight;
-    renderWidth = containerHeight * videoAspect;
-    left = (containerWidth - renderWidth) / 2.0;
+  let scaleX: number;
+  let scaleY: number;
+  if (fit === 'fill') {
+    scaleX = Cw / W;
+    scaleY = Ch / H;
   } else {
-    // Container is taller than video => letterbox (bars on top & bottom)
-    renderWidth = containerWidth;
-    renderHeight = containerWidth / videoAspect;
-    top = (containerHeight - renderHeight) / 2.0;
+    const s = fit === 'cover' ? Math.max(Cw / W, Ch / H) : Math.min(Cw / W, Ch / H);
+    scaleX = s;
+    scaleY = s;
   }
 
-  const scale = renderWidth / videoWidth;
+  const displayWidth = W * scaleX;
+  const displayHeight = H * scaleY;
+  const offsetX = (Cw - displayWidth) * objectPosition.x;
+  const offsetY = (Ch - displayHeight) * objectPosition.y;
+
+  const u0 = Math.max(0, -offsetX / scaleX);
+  const v0 = Math.max(0, -offsetY / scaleY);
+  const u1 = Math.min(W, (Cw - offsetX) / scaleX);
+  const v1 = Math.min(H, (Ch - offsetY) / scaleY);
 
   return {
-    left,
-    top,
-    width: renderWidth,
-    height: renderHeight,
-    scale,
+    fit,
+    videoWidth: W,
+    videoHeight: H,
+    containerWidth: Cw,
+    containerHeight: Ch,
+    scaleX,
+    scaleY,
+    offsetX,
+    offsetY,
+    displayWidth,
+    displayHeight,
+    visibleImageRect: { u0, v0, u1, v1 },
   };
 }
 
-/**
- * Maps MediaPipe normalized landmark (pt.x, pt.y) in [0, 1] to camera sensor pixels (u, v).
- * In mirrored mode (standard front-facing webcam preview), x is flipped: u = (1 - x) * width.
- */
-export function imageToPixel(
-  pt: { x: number; y: number },
-  width: number,
-  height: number,
-  isMirrored = true
-): [number, number] {
-  const u = isMirrored ? (1.0 - pt.x) * width : pt.x * width;
-  const v = pt.y * height;
-  return [u, v];
+/** Normalized MediaPipe coordinates → image pixels. */
+export function normalizedToImage(n: Vec2, videoWidth: number, videoHeight: number): Vec2 {
+  return { x: n.x * videoWidth, y: n.y * videoHeight };
+}
+
+/** Image pixels → normalized MediaPipe coordinates. */
+export function imageToNormalized(p: Vec2, videoWidth: number, videoHeight: number): Vec2 {
+  return { x: p.x / videoWidth, y: p.y / videoHeight };
+}
+
+/** Image pixels → container CSS pixels (pre-mirror). */
+export function imageToDisplay(p: Vec2, t: VideoDisplayTransform): Vec2 {
+  return { x: p.x * t.scaleX + t.offsetX, y: p.y * t.scaleY + t.offsetY };
+}
+
+/** Container CSS pixels (pre-mirror) → image pixels. */
+export function displayToImage(d: Vec2, t: VideoDisplayTransform): Vec2 {
+  return { x: (d.x - t.offsetX) / t.scaleX, y: (d.y - t.offsetY) / t.scaleY };
+}
+
+/** Container CSS pixels → NDC of a canvas covering the whole container. */
+export function displayToNDC(d: Vec2, t: VideoDisplayTransform): Vec2 {
+  return { x: (2 * d.x) / t.containerWidth - 1, y: 1 - (2 * d.y) / t.containerHeight };
+}
+
+export function ndcToDisplay(ndc: Vec2, t: VideoDisplayTransform): Vec2 {
+  return { x: ((ndc.x + 1) / 2) * t.containerWidth, y: ((1 - ndc.y) / 2) * t.containerHeight };
+}
+
+/** Image pixels → NDC (through the display transform). */
+export function imageToNDC(p: Vec2, t: VideoDisplayTransform): Vec2 {
+  return displayToNDC(imageToDisplay(p, t), t);
+}
+
+/** NDC → image pixels (through the display transform). */
+export function ndcToImage(ndc: Vec2, t: VideoDisplayTransform): Vec2 {
+  return displayToImage(ndcToDisplay(ndc, t), t);
 }
 
 /**
- * Back-projects a sensor pixel (u, v) into a 3D ray direction in camera space.
- * In camera space:
- *   +X is Right
- *   +Y is Up (opposite to image pixel v which points Down)
- *   -Z is Forward into the scene
+ * Back-projects an image pixel to a camera-space point at positive depth d (metres).
+ * Returns (X, Y, Z) with Z = -d.
  */
-export function pixelToCameraRay(
-  u: number,
-  v: number,
-  intrinsics: CameraIntrinsics,
-  isMirrored = true
+export function imageToCamera(
+  p: Vec2,
+  depth: number,
+  K: Pick<CameraIntrinsics, 'fx' | 'fy' | 'cx' | 'cy'>,
+  out: THREE.Vector3 = new THREE.Vector3()
 ): THREE.Vector3 {
-  const { fx, fy, cx, cy, width } = intrinsics;
-
-  // Account for mirror mode in ray direction
-  const effectiveU = isMirrored ? width - u : u;
-  const dirX = (effectiveU - cx) / fx;
-  const dirY = -(v - cy) / fy;
-  const dirZ = -1.0;
-
-  return new THREE.Vector3(dirX, dirY, dirZ).normalize();
+  const d = Math.max(1e-6, depth);
+  return out.set(((p.x - K.cx) * d) / K.fx, (-(p.y - K.cy) * d) / K.fy, -d);
 }
 
 /**
- * Projects a 3D camera-space point (X, Y, Z) with Z < 0 onto sensor pixels (u, v).
+ * Projects a camera-space point to image pixels. Returns null for points at or behind
+ * the camera plane (d ≤ 1e-6), instead of silently clamping depth.
  */
-export function cameraToPixel(
-  point: THREE.Vector3,
-  intrinsics: CameraIntrinsics,
-  isMirrored = true
-): [number, number] {
-  const { fx, fy, cx, cy, width } = intrinsics;
-  const depthZ = Math.max(0.01, -point.z);
-
-  let u = (fx * point.x) / depthZ + cx;
-  if (isMirrored) {
-    u = width - u;
-  }
-  const v = (-fy * point.y) / depthZ + cy;
-
-  return [u, v];
+export function cameraToImage(
+  P: { x: number; y: number; z: number },
+  K: Pick<CameraIntrinsics, 'fx' | 'fy' | 'cx' | 'cy'>
+): Vec2 | null {
+  const d = -P.z;
+  if (d <= 1e-6) return null;
+  return { x: (K.fx * P.x) / d + K.cx, y: (-K.fy * P.y) / d + K.cy };
 }
 
 /**
- * Converts camera-space 3D point directly to screen pixel coordinates
- * using a Three.js Camera and viewport dimensions.
+ * Builds the Three.js projection matrix that maps camera space to the NDC of a canvas
+ * covering the container, such that a camera point lands exactly where its image pixel is
+ * displayed by the <video> element (including object-fit crop / letterbox).
+ *
+ * Derivation (x shown, y analogous with the sign flip for v):
+ *   ndcX = 2(sx·u + ox)/Cw − 1,  u = fx·X/d + cx,  d = −Z, clipW = d
+ *   clipX = ndcX·d = (2·sx·fx/Cw)·X + (1 − 2(sx·cx + ox)/Cw)·Z
+ *   ⇒ P00 = 2·sx·fx/Cw,  P02 = 1 − 2(sx·cx + ox)/Cw
+ *   ndcY = 1 − 2(sy·v + oy)/Ch,  v = −fy·Y/d + cy
+ *   ⇒ P11 = 2·sy·fy/Ch,  P12 = 2(sy·cy + oy)/Ch − 1
+ * With s = 1, o = 0 and C = W×H this reduces to the standard intrinsics frustum.
  */
-export function cameraToScreen(
-  point: THREE.Vector3,
-  camera: THREE.Camera,
-  viewportWidth: number,
-  viewportHeight: number
-): { x: number; y: number } {
-  const p = point.clone().project(camera);
-  const x = (p.x * 0.5 + 0.5) * viewportWidth;
-  const y = (-p.y * 0.5 + 0.5) * viewportHeight;
-  return { x, y };
+export function buildProjectionMatrix(
+  K: Pick<CameraIntrinsics, 'fx' | 'fy' | 'cx' | 'cy'>,
+  t: VideoDisplayTransform,
+  near = 0.05,
+  far = 20.0,
+  out: THREE.Matrix4 = new THREE.Matrix4()
+): THREE.Matrix4 {
+  const Cw = t.containerWidth;
+  const Ch = t.containerHeight;
+  const p00 = (2 * t.scaleX * K.fx) / Cw;
+  const p02 = 1 - (2 * (t.scaleX * K.cx + t.offsetX)) / Cw;
+  const p11 = (2 * t.scaleY * K.fy) / Ch;
+  const p12 = (2 * (t.scaleY * K.cy + t.offsetY)) / Ch - 1;
+  const p22 = -(far + near) / (far - near);
+  const p23 = -(2 * far * near) / (far - near);
+
+  // Matrix4.set takes row-major arguments.
+  out.set(
+    p00, 0, p02, 0,
+    0, p11, p12, 0,
+    0, 0, p22, p23,
+    0, 0, -1, 0
+  );
+  return out;
 }
 
 /**
- * Computes the reprojection distance in pixels between a 3D point in camera space
- * and a 2D detected image landmark.
+ * Converts a MediaPipe world-landmark *vector* (difference of two world landmarks, metres,
+ * image-aligned axes: +x right, +y down, +z away from camera) to camera axes.
  */
-export function computeReprojectionError(
-  point3D: THREE.Vector3,
-  landmark2D: { x: number; y: number },
-  intrinsics: CameraIntrinsics,
-  isMirrored = true
+export function worldLandmarkToCameraAxes(
+  v: { x: number; y: number; z: number },
+  out: THREE.Vector3 = new THREE.Vector3()
+): THREE.Vector3 {
+  return out.set(v.x, -v.y, -v.z);
+}
+
+/** Pixel distance between two normalized landmarks, honouring non-square frames. */
+export function normalizedPixelDistance(
+  a: Vec2,
+  b: Vec2,
+  videoWidth: number,
+  videoHeight: number
 ): number {
-  const [projU, projV] = cameraToPixel(point3D, intrinsics, isMirrored);
-  const [obsU, obsV] = imageToPixel(landmark2D, intrinsics.width, intrinsics.height, isMirrored);
-
-  return Math.hypot(projU - obsU, projV - obsV);
+  return Math.hypot((a.x - b.x) * videoWidth, (a.y - b.y) * videoHeight);
 }
-

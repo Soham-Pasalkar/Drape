@@ -70,3 +70,6 @@ frontend/.env.local
 # TypeScript Build Artifacts
 *.tsbuildinfo
 
+
+# AR test build output
+frontend/dist_test/

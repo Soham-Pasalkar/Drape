@@ -3,6 +3,10 @@
  *
  * Implements:
  * 1. Synchronized video stream & WebGL2 canvas viewport alignment.
+ *    MIRRORING POLICY: the <video>, the WebGL container and every 2D overlay canvas live in ONE
+ *    wrapper that receives a single CSS scaleX(-1) for selfie cameras. Nothing inside is
+ *    mirrored individually and the projection matrix is never mirrored (lib/ar/coordinates.ts).
+ *    Overlays map landmarks through the same object-fit display transform as the video.
  * 2. Visual Calibration Skeleton & MHR Body Proxy Overlay.
  * 3. Real-time Studio Framing Guidance (Step Back / Move Closer / Center).
  * 4. ISO ID-1 Reference Card Calibration Tool Trigger.
@@ -24,7 +28,12 @@ import {
   Activity,
 } from "lucide-react";
 import { LandmarkPoint, TrackingStatus, FramingGuidance } from "@/lib/ar/types";
-import DeveloperDiagnosticOverlay, { DiagnosticMetrics } from "./DeveloperDiagnosticOverlay";
+import { VideoDisplayTransform, imageToDisplay } from "@/lib/ar/coordinates";
+import DeveloperDiagnosticOverlay, {
+  DiagnosticCanvasLayer,
+  DiagnosticLayers,
+  DiagnosticMetrics,
+} from "./DeveloperDiagnosticOverlay";
 
 interface CameraViewportProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -37,6 +46,10 @@ interface CameraViewportProps {
   showDiagnostics?: boolean;
   onToggleDiagnostics?: () => void;
   diagnosticMetrics?: DiagnosticMetrics | null;
+  diagnosticLayers: DiagnosticLayers;
+  onDiagnosticLayersChange: (layers: DiagnosticLayers) => void;
+  /** CSS object-fit transform of the video inside this viewport (null until video metadata). */
+  displayTransform?: VideoDisplayTransform | null;
   onSwitchCamera?: () => void;
   onOpenCalibration?: () => void;
   aspectRatio?: number;
@@ -56,6 +69,9 @@ export default function CameraViewport({
   showDiagnostics = false,
   onToggleDiagnostics,
   diagnosticMetrics = null,
+  diagnosticLayers,
+  onDiagnosticLayersChange,
+  displayTransform = null,
   onSwitchCamera,
   onOpenCalibration,
   aspectRatio = 16 / 9,
@@ -82,123 +98,96 @@ export default function CameraViewport({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onToggleDiagnostics]);
 
-  // Draw 2D skeletal anatomical connections for calibration
+  // Calibration skeleton, drawn in container CSS pixels through the video display transform.
+  // The canvas sits inside the mirrored layer stack, so no per-point mirroring is applied.
   useEffect(() => {
     const canvas = skeletonCanvasRef.current;
-    if (!canvas || !showSkeleton || rawLandmarks.length < 25) {
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        ctx?.clearRect(0, 0, canvas.width, canvas.height);
-      }
-      return;
-    }
-
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    if (canvas.width !== rect.width || canvas.height !== rect.height) {
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const cssW = displayTransform?.containerWidth ?? canvas.clientWidth;
+    const cssH = displayTransform?.containerHeight ?? canvas.clientHeight;
+    if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
     }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    if (!showSkeleton || !displayTransform || rawLandmarks.length < 25) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const w = canvas.width;
-    const h = canvas.height;
-
-    const getPos = (pt: LandmarkPoint) => {
-      const x = isMirrored ? (1 - pt.x) * w : pt.x * w;
-      const y = pt.y * h;
-      return { x, y };
-    };
+    const getPos = (pt: LandmarkPoint) =>
+      imageToDisplay({ x: pt.x * displayTransform.videoWidth, y: pt.y * displayTransform.videoHeight }, displayTransform);
 
     const connections: [number, number][] = [
-      [11, 12], // Shoulders
-      [11, 13], // Left upper arm
-      [13, 15], // Left forearm
-      [12, 14], // Right upper arm
-      [14, 16], // Right forearm
-      [11, 23], // Left torso
-      [12, 24], // Right torso
-      [23, 24], // Hips
-      [23, 25], // Left thigh
-      [24, 26], // Right thigh
-      [25, 27], // Left calf
-      [26, 28], // Right calf
+      [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+      [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28],
     ];
-
     ctx.lineWidth = 2.5;
-    ctx.strokeStyle = "rgba(41, 75, 255, 0.85)"; // Electric blue
-
+    ctx.strokeStyle = "rgba(41, 75, 255, 0.85)";
     connections.forEach(([i, j]) => {
       const p1 = rawLandmarks[i];
       const p2 = rawLandmarks[j];
       if (p1 && p2 && (p1.visibility ?? 1) > 0.35 && (p2.visibility ?? 1) > 0.35) {
-        const pos1 = getPos(p1);
-        const pos2 = getPos(p2);
+        const a = getPos(p1);
+        const b = getPos(p2);
         ctx.beginPath();
-        ctx.moveTo(pos1.x, pos1.y);
-        ctx.lineTo(pos2.x, pos2.y);
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
         ctx.stroke();
       }
     });
-
-    // Draw joints
     [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach((idx) => {
       const pt = rawLandmarks[idx];
       if (pt && (pt.visibility ?? 1) > 0.35) {
-        const pos = getPos(pt);
+        const p = getPos(pt);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 4.5, 0, 2 * Math.PI);
-        ctx.fillStyle = "#D4FF00"; // Acid lime
+        ctx.arc(p.x, p.y, 4.5, 0, 2 * Math.PI);
+        ctx.fillStyle = "#D4FF00";
         ctx.fill();
         ctx.strokeStyle = "#0A0A0A";
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
     });
-  }, [rawLandmarks, showSkeleton, isMirrored]);
+  }, [rawLandmarks, showSkeleton, displayTransform]);
 
   return (
     <div
       className="relative w-full bg-ink-black rounded-sm overflow-hidden border border-warm-ivory/20 shadow-2xl group"
       style={{ aspectRatio: `${aspectRatio}` }}
     >
-      {/* 1. Underlying HTML5 Video Stream */}
-      <video
-        ref={videoRef}
-        className={`absolute inset-0 w-full h-full object-cover ${
-          isMirrored ? "scale-x-[-1]" : ""
-        }`}
-        playsInline
-        muted
-        autoPlay
-      />
-
-      {/* 2. WebGL2 Three.js 3D Render Canvas Container */}
+      {/* 1–3. Mirrored layer stack: video, WebGL canvas and 2D overlays share ONE reflection. */}
       <div
-        ref={threeContainerRef}
-        className="absolute inset-0 w-full h-full pointer-events-none z-10"
-      />
-
-      {/* 3. Calibration Skeleton Overlay Canvas */}
-      <canvas
-        ref={skeletonCanvasRef}
-        width={1280}
-        height={720}
-        className="absolute inset-0 w-full h-full pointer-events-none z-20"
-      />
-
-      {/* 3b. Developer AR Diagnostic Overlay */}
-      {diagnosticMetrics && (
-        <DeveloperDiagnosticOverlay
+        className="absolute inset-0"
+        style={{ transform: isMirrored ? "scaleX(-1)" : undefined }}
+        data-testid="ar-layer-stack"
+      >
+        <video
+          ref={videoRef}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ objectPosition: "50% 50%" }}
+          playsInline
+          muted
+          autoPlay
+        />
+        <div ref={threeContainerRef} className="absolute inset-0 w-full h-full pointer-events-none z-10" />
+        <canvas ref={skeletonCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
+        <DiagnosticCanvasLayer
           active={showDiagnostics}
           rawLandmarks={rawLandmarks}
-          metrics={diagnosticMetrics}
-          isMirrored={isMirrored}
+          display={displayTransform}
+          layers={diagnosticLayers}
         />
-      )}
+      </div>
+
+      {/* 3b. Developer diagnostics HUD (outside the mirrored stack so text stays readable) */}
+      <DeveloperDiagnosticOverlay
+        active={showDiagnostics}
+        metrics={diagnosticMetrics}
+        layers={diagnosticLayers}
+        onLayersChange={onDiagnosticLayersChange}
+      />
 
       {/* 4. Real-Time Framing Guidance HUD (When user needs to step back / center) */}
       {framingGuidance !== "good_framing" && framingMessage && (

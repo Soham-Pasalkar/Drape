@@ -27,6 +27,7 @@ import {
   CameraStatus,
   OperatingMode,
   GarmentEase,
+  DistanceMode,
 } from "@/lib/ar/types";
 
 interface TrackingStatusBannerProps {
@@ -39,6 +40,7 @@ interface TrackingStatusBannerProps {
   operatingMode?: OperatingMode;
   isCalibrated?: boolean;
   estimatedDistanceZ?: number;
+  distanceMode?: DistanceMode;
   ease?: GarmentEase | null;
 }
 
@@ -52,6 +54,7 @@ export default function TrackingStatusBanner({
   operatingMode = "bust",
   isCalibrated = false,
   estimatedDistanceZ,
+  distanceMode = "uninitialized",
   ease,
 }: TrackingStatusBannerProps) {
   const isCameraActive =
@@ -114,7 +117,7 @@ export default function TrackingStatusBanner({
           </span>
           <span className="text-[10px] tracking-wider uppercase font-medium">
             {isBodyDetected
-              ? `BODY TRACKED (${confidence ? Math.round(confidence * 100) : 95}%)`
+              ? `BODY TRACKED${confidence !== undefined ? ` (${Math.round(confidence * 100)}%)` : ""}`
               : "SEARCHING FOR BODY..."}
           </span>
         </div>
@@ -126,7 +129,11 @@ export default function TrackingStatusBanner({
           <Maximize2 className="w-3 h-3 text-electric-blue" />
           <span className="text-[10px] tracking-wider uppercase font-medium">
             {modeLabels[operatingMode]}
-            {estimatedDistanceZ ? ` • ${(estimatedDistanceZ).toFixed(1)}m` : ""}
+            {distanceMode === "uninitialized"
+              ? " • CALIBRATING DISTANCE"
+              : estimatedDistanceZ
+              ? ` • ≈${estimatedDistanceZ.toFixed(1)}m ${distanceMode === "metric" ? "" : "(REL.)"}`
+              : ""}
           </span>
         </div>
       )}
@@ -142,13 +149,21 @@ export default function TrackingStatusBanner({
         >
           <Ruler className="w-3 h-3" />
           <span className="text-[10px] tracking-wider uppercase font-medium">
-            {isCalibrated ? "METRIC CALIBRATED" : "ESTIMATED SCALE"}
+            {/* Card calibration fixes the focal length only; body scale is still assumed. */}
+            {isCalibrated ? "LENS CALIBRATED" : "LENS PRIOR"}
           </span>
         </div>
       )}
 
       {/* 5. Physical Fit & Fabric Strain Pill */}
-      {isFittingActive && ease && (
+      {isFittingActive && ease && ease.reliable === false && (
+        <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-sm backdrop-blur-md border bg-warm-ivory/5 text-warm-ivory/60 border-warm-ivory/15">
+          <Ruler className="w-3 h-3" />
+          <span className="text-[10px] tracking-wider uppercase font-medium">FIT: INDICATIVE (BODY SCALE ASSUMED)</span>
+        </div>
+      )}
+
+      {isFittingActive && ease && ease.reliable !== false && (
         <div
           className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-sm backdrop-blur-md border ${
             ease.isTooSmall

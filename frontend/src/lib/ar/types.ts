@@ -51,8 +51,13 @@ export interface BodyKeypoints {
   hipWidth: number;
   confidence: number;
 
-  // Raw world landmarks from MediaPipe (approximate relative 3D pose in meters)
+  // Smoothed MediaPipe world landmarks: hip-centred, metres, axes x→image right,
+  // y→image down, z→away from camera. This is a learned *prior* on 3D pose, not
+  // measured depth. Convert with worldLandmarkToCameraAxes() before use.
   worldLandmarks?: LandmarkPoint[];
+
+  // performance.now() timestamp of the video frame these landmarks came from.
+  timestamp?: number;
 }
 
 export type GarmentCategory = 'tops' | 'skirts' | 'dresses';
@@ -98,6 +103,14 @@ export interface BodyMeasurements {
     hips: number;
   };
   isEstimated: boolean;
+  /**
+   * Where the metric scale comes from. A monocular webcam cannot observe absolute
+   * body size: 'anthropometric_prior' means metres come from an assumed / learned
+   * shoulder breadth; 'known_distance' means the user supplied a reference distance.
+   */
+  scaleSource?: 'anthropometric_prior' | 'known_distance';
+  /** Approximate 1-sigma uncertainty of the circumference values, in cm. */
+  uncertaintyCm?: number;
 }
 
 export interface ShapeParameters {
@@ -149,7 +162,18 @@ export interface GarmentEase {
   estimatedStrainPercent: number;
   isTooSmall: boolean;
   fitAssessment: 'relaxed' | 'tailored' | 'snug' | 'strained' | 'too_small';
+  /** False when body measurements are prior-derived and too uncertain to judge fit. */
+  reliable?: boolean;
 }
+
+/**
+ * Semantics of the current camera-to-body distance value.
+ * - uninitialized: no stable reference yet; value is a provisional prior-based guess.
+ * - relative:      Z(t) = Z0 * S0 / S(t) with Z0 anchored on an anthropometric prior.
+ * - metric:        Z0 anchored on a user-supplied known distance.
+ * - low_confidence: the current frame could not be measured (yaw / visibility); value held.
+ */
+export type DistanceMode = 'uninitialized' | 'relative' | 'metric' | 'low_confidence';
 
 export interface SimulationConfig {
   enabled: boolean;
@@ -212,6 +236,17 @@ export interface FittingProfile {
   zOffset: number;
 }
 
+/**
+ * Construction facts that drive runtime behaviour. Never infer these from GLB
+ * node names: the sleeveless top's GLB still contains 2 cm "left_sleeve" stubs.
+ */
+export interface GarmentConstruction {
+  /** 'short' | 'long' sleeves are articulated about their seam; 'none' keeps any stubs rigid. */
+  sleeves: 'short' | 'long' | 'none';
+  /** Name of the GLB mesh that simulation-data.json was generated from. */
+  simulationMesh: string;
+}
+
 export interface GarmentMetadata {
   id: string;
   name: string;
@@ -222,6 +257,7 @@ export interface GarmentMetadata {
   dimensions: GarmentDimensions;
   modelDimensions: ModelDimensions;
   modelAnchor: ModelAnchor;
+  construction: GarmentConstruction;
   fittingProfile: FittingProfile;
   material: {
     color: string;

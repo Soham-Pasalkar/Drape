@@ -1,15 +1,19 @@
 /**
- * DRAPE Virtual Try-On Experience (Parametric MHR Architecture)
+ * DRAPE Virtual Try-On Experience
  *
- * Implements:
- * 1. Calibrated Pinhole Camera + Metric Scale Anchor
- * 2. MediaPipe Pose 33-Landmarks + 1€ Filter Smoothing
- * 3. Parametric MHR Body Proxy + Depth-Only Occlusion
- * 4. Robust PnP 6-DoF Root Solver & Swing-Twist Joint Kinematics
- * 5. Personalized Anthropometric Body Shape Fitting (Chest, Waist, Hips)
- * 6. Garment Ease & Physical Strain Limits
- * 7. XPBD Secondary Cloth Simulation
- * 8. Real-time Studio Framing Guidance (Collar, Bust, Full-Body)
+ * LIVE EXECUTION PATH
+ *   getUserMedia ─► <video> (object-cover, inside the mirrored layer stack)
+ *        │
+ *        ├─ requestVideoFrameCallback ─► MediaPipe PoseLandmarker ─► 1€ smoothing
+ *        │      (once per camera frame)        └─► poseFrameRef { keypoints, frameId }
+ *        │
+ *        └─ requestAnimationFrame render loop (display rate):
+ *             1. container size (ResizeObserver) + video size ─► VideoDisplayTransform
+ *             2. intrinsics + display transform ─► projection matrix (only when changed)
+ *             3. NEW pose frame? ─► FittingEngine.processFrame (once per pose frame)
+ *                                  ─► ThreeSceneManager.setFrameTarget
+ *             4. ThreeSceneManager.render: pose smoothing, sleeves, deformation, XPBD, draw
+ *             5. ~10 Hz React UI / diagnostics update from the latest fit
  */
 
 "use client";
@@ -22,16 +26,11 @@ import {
   Sparkles,
   ShieldCheck,
   AlertCircle,
-  RotateCcw,
-  Check,
-  Layers,
-  ShoppingBag,
-  ExternalLink,
-  Info,
   X,
   Ruler,
-  Maximize2,
-  CheckCircle2,
+  Layers,
+  ShoppingBag,
+  Info,
 } from "lucide-react";
 import {
   GarmentMetadata,
@@ -45,103 +44,152 @@ import {
   FramingGuidance,
   BodyMeasurements,
   GarmentEase,
+  DistanceMode,
 } from "@/lib/ar/types";
 import { getAllGarments, getGarmentById } from "@/lib/ar/garment-registry";
 import { CameraManager } from "@/lib/ar/camera";
-import { PoseTracker } from "@/lib/ar/pose-tracker";
+import { PoseTracker, PoseTrackerCallbacks } from "@/lib/ar/pose-tracker";
 import { ThreeSceneManager } from "@/lib/ar/three-scene";
-import { FittingEngine } from "@/lib/ar/fitting-engine";
+import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
+import { computeVideoDisplayTransform, VideoDisplayTransform } from "@/lib/ar/coordinates";
 import TrackingStatusBanner from "./TrackingStatusBanner";
 import CameraViewport from "./CameraViewport";
 import GarmentSelector from "./GarmentSelector";
-import { DiagnosticMetrics } from "./DeveloperDiagnosticOverlay";
+import { DiagnosticMetrics, DiagnosticLayers, DEFAULT_DIAGNOSTIC_LAYERS } from "./DeveloperDiagnosticOverlay";
 
 interface VirtualTryOnExperienceProps {
   initialGarmentId?: string;
 }
 
-export default function VirtualTryOnExperience({
-  initialGarmentId,
-}: VirtualTryOnExperienceProps) {
+/** The <video> uses CSS object-fit: cover with centred object-position (see CameraViewport). */
+const VIDEO_OBJECT_FIT = "cover" as const;
+const UI_UPDATE_INTERVAL_MS = 100;
+
+export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryOnExperienceProps) {
   const allGarments = getAllGarments();
   const initial = initialGarmentId ? getGarmentById(initialGarmentId) : null;
-  const [selectedGarment, setSelectedGarment] = useState<GarmentMetadata>(
-    initial || allGarments[0]
-  );
+  const [selectedGarment, setSelectedGarment] = useState<GarmentMetadata>(initial || allGarments[0]);
 
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>("idle");
   const [bodyTrackingStatus, setBodyTrackingStatus] = useState<BodyTrackingStatus>("searching");
   const [garmentFittingStatus, setGarmentFittingStatus] = useState<GarmentFittingStatus>("unloaded");
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>("idle");
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
 
   const [rawLandmarks, setRawLandmarks] = useState<LandmarkPoint[]>([]);
   const [showSkeleton, setShowSkeleton] = useState<boolean>(false);
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
+  const [diagnosticLayers, setDiagnosticLayers] = useState<DiagnosticLayers>(DEFAULT_DIAGNOSTIC_LAYERS);
   const [diagnosticMetrics, setDiagnosticMetrics] = useState<DiagnosticMetrics | null>(null);
+  const [displayTransform, setDisplayTransform] = useState<VideoDisplayTransform | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState<boolean>(false);
   const [calibrationModalOpen, setCalibrationModalOpen] = useState<boolean>(false);
   const [cameraAspect, setCameraAspect] = useState<number>(16 / 9);
 
-  // Parametric Engine Metrics
   const [operatingMode, setOperatingMode] = useState<OperatingMode>("bust");
   const [framingGuidance, setFramingGuidance] = useState<FramingGuidance>("good_framing");
   const [framingMessage, setFramingMessage] = useState<string>("Optimal studio framing");
   const [isCalibrated, setIsCalibrated] = useState<boolean>(false);
-  const [estimatedDistanceZ, setEstimatedDistanceZ] = useState<number>(1.6);
+  const [estimatedDistanceZ, setEstimatedDistanceZ] = useState<number | undefined>(undefined);
+  const [distanceMode, setDistanceMode] = useState<DistanceMode>("uninitialized");
+  const [landmarkConfidence, setLandmarkConfidence] = useState<number | undefined>(undefined);
   const [bodyMeasurements, setBodyMeasurements] = useState<BodyMeasurements | null>(null);
   const [garmentEase, setGarmentEase] = useState<GarmentEase | null>(null);
 
-  // Calibration Form State
   const [cardDistanceInput, setCardDistanceInput] = useState<number>(0.5);
   const [cardWidthPxInput, setCardWidthPxInput] = useState<number>(240);
 
-  // Core AR Subsystem Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const threeContainerRef = useRef<HTMLDivElement | null>(null);
-
   const cameraManagerRef = useRef<CameraManager | null>(null);
   const poseTrackerRef = useRef<PoseTracker | null>(null);
+  const poseCallbacksRef = useRef<PoseTrackerCallbacks | null>(null);
   const threeSceneRef = useRef<ThreeSceneManager | null>(null);
   const fittingEngineRef = useRef<FittingEngine | null>(null);
   const renderRafRef = useRef<number | null>(null);
+  const sessionRef = useRef<number>(0); // invalidates async work from a previous session
 
-  const latestKeypointsRef = useRef<BodyKeypoints | null>(null);
+  const poseFrameRef = useRef<{ keypoints: BodyKeypoints | null; landmarks: LandmarkPoint[]; frameId: number }>({
+    keypoints: null,
+    landmarks: [],
+    frameId: 0,
+  });
+  const processedFrameIdRef = useRef<number>(0);
+  const latestFitRef = useRef<DetailedFittingResult | null>(null);
+  const containerSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const displayKeyRef = useRef<string>("");
+  const displayRef = useRef<VideoDisplayTransform | null>(null);
   const selectedGarmentRef = useRef<GarmentMetadata>(selectedGarment);
+  const overlaysVisibleRef = useRef<boolean>(false);
+  const diagnosticsVisibleRef = useRef<boolean>(false);
+  const statusRef = useRef<{ fitting: GarmentFittingStatus; body: BodyTrackingStatus }>({ fitting: "unloaded", body: "searching" });
+
   const lastUiUpdateRef = useRef<number>(0);
   const renderFrameCountRef = useRef<number>(0);
-  const lastFpsTimeRef = useRef<number>(performance.now());
-  const currentRenderFpsRef = useRef<number>(60);
+  const lastFpsTimeRef = useRef<number>(0);
+  const currentRenderFpsRef = useRef<number>(0);
+  const lastFrameMsRef = useRef<number>(0);
 
   useEffect(() => {
     selectedGarmentRef.current = selectedGarment;
   }, [selectedGarment]);
+  useEffect(() => {
+    overlaysVisibleRef.current = showSkeleton || showDiagnostics;
+    diagnosticsVisibleRef.current = showDiagnostics;
+  }, [showSkeleton, showDiagnostics]);
+  useEffect(() => {
+    threeSceneRef.current?.setDebugLayers({
+      bodyProxy: showSkeleton || (showDiagnostics && diagnosticLayers.bodyProxy),
+      bounds: showDiagnostics && diagnosticLayers.bounds,
+      anchors: showDiagnostics && diagnosticLayers.anchors,
+      correspondence: showDiagnostics && diagnosticLayers.correspondence,
+      collisionNormals: showDiagnostics && diagnosticLayers.collisionNormals,
+    });
+  }, [showSkeleton, showDiagnostics, diagnosticLayers, isCameraActive]);
 
-  // Clean tear-down helper
+  const setFittingStatus = useCallback((s: GarmentFittingStatus) => {
+    if (statusRef.current.fitting !== s) {
+      statusRef.current.fitting = s;
+      setGarmentFittingStatus(s);
+    }
+  }, []);
+
+  // Container size tracking (layout reads happen in the observer, never in the render loop).
+  useEffect(() => {
+    const el = threeContainerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect;
+      containerSizeRef.current = { width: r.width, height: r.height };
+      threeSceneRef.current?.resize(r.width, r.height);
+    });
+    ro.observe(el);
+    containerSizeRef.current = { width: el.clientWidth, height: el.clientHeight };
+    return () => ro.disconnect();
+  }, []);
+
   const teardownAR = useCallback(() => {
+    sessionRef.current++;
     if (renderRafRef.current !== null) {
       cancelAnimationFrame(renderRafRef.current);
       renderRafRef.current = null;
     }
+    poseTrackerRef.current?.dispose();
+    poseTrackerRef.current = null;
+    cameraManagerRef.current?.stopCamera();
+    cameraManagerRef.current = null;
+    threeSceneRef.current?.dispose();
+    threeSceneRef.current = null;
+    fittingEngineRef.current = null;
+    poseFrameRef.current = { keypoints: null, landmarks: [], frameId: 0 };
+    processedFrameIdRef.current = 0;
+    latestFitRef.current = null;
+    displayKeyRef.current = "";
+    displayRef.current = null;
+    statusRef.current = { fitting: "unloaded", body: "searching" };
 
-    if (poseTrackerRef.current) {
-      poseTrackerRef.current.stopTracking();
-      poseTrackerRef.current.dispose();
-      poseTrackerRef.current = null;
-    }
-
-    if (cameraManagerRef.current) {
-      cameraManagerRef.current.stopCamera();
-      cameraManagerRef.current = null;
-    }
-
-    if (threeSceneRef.current) {
-      threeSceneRef.current.dispose();
-      threeSceneRef.current = null;
-    }
-
-    latestKeypointsRef.current = null;
     setRawLandmarks([]);
     setIsCameraActive(false);
     setCameraStatus("idle");
@@ -150,179 +198,234 @@ export default function VirtualTryOnExperience({
     setTrackingStatus("idle");
     setBodyMeasurements(null);
     setGarmentEase(null);
+    setDiagnosticMetrics(null);
+    setDisplayTransform(null);
+    setEstimatedDistanceZ(undefined);
+    setDistanceMode("uninitialized");
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      teardownAR();
-    };
-  }, [teardownAR]);
+  useEffect(() => () => teardownAR(), [teardownAR]);
 
-  // Start AR Experience
+  // Pause-safe timing: after a hidden tab, rAF resumes with a huge gap; reset frame timing.
+  useEffect(() => {
+    const onVis = () => {
+      if (!document.hidden) threeSceneRef.current?.resetTiming();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  const buildDiagnostics = (fit: DetailedFittingResult, video: HTMLVideoElement, fitting: FittingEngine, scene: ThreeSceneManager): DiagnosticMetrics => {
+    const K = fitting.calibrationManager.getIntrinsics();
+    const d = displayRef.current;
+    const sd = scene.getDiagnostics();
+    const tracker = poseTrackerRef.current;
+    const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    return {
+      camera: {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        containerWidth: containerSizeRef.current.width,
+        containerHeight: containerSizeRef.current.height,
+        canvasWidth: Math.round(containerSizeRef.current.width * dpr),
+        canvasHeight: Math.round(containerSizeRef.current.height * dpr),
+        dpr: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+        fit: VIDEO_OBJECT_FIT,
+        displayScale: d?.scaleX ?? NaN,
+        offsetX: d?.offsetX ?? NaN,
+        offsetY: d?.offsetY ?? NaN,
+        mirrored: cameraManagerRef.current?.facingMode === "user",
+        fx: K.fx,
+        fy: K.fy,
+        cx: K.cx,
+        cy: K.cy,
+        calibrationMethod: K.calibrationMethod,
+        isCalibrated: K.isCalibrated,
+      },
+      tracking: {
+        status: tracker?.status ?? "idle",
+        landmarkConfidence: fit.tracking.landmarkConfidence,
+        shoulderSpanPx: fit.tracking.shoulderSpanPx,
+        shoulderVisibility: fit.tracking.shoulderVisibility,
+        hipVisibility: fit.tracking.hipVisibility,
+        yawDeg: (fit.tracking.yawRad * 180) / Math.PI,
+        yawSource: fit.tracking.yawSource,
+        jitterPx: fit.tracking.landmarkJitterPx,
+        proportionSource: fit.tracking.proportionSource,
+        pnpValid: fit.pnpResult.valid,
+        pnpReason: fit.pnpResult.reason,
+        reprojectionErrorPx: fit.pnpResult.reprojectionError,
+        pnpIterations: fit.pnpResult.iterations,
+        rootPosition: fit.pnpResult.rootPosition,
+      },
+      distance: {
+        mode: fit.distance.mode,
+        distanceM: fit.distance.distanceM,
+        confidence: fit.distance.confidence,
+        rawSpanPx: fit.distance.rawSpanPx,
+        correctedSpanPx: fit.distance.correctedSpanPx,
+        referenceSpanPx: fit.distance.referenceSpanPx,
+        referenceDistanceM: fit.distance.referenceDistanceM,
+        shoulderBreadthM: fit.distance.shoulderBreadthM,
+        breadthSource: fit.distance.breadthSource,
+        samplesCollected: fit.distance.samplesCollected,
+        samplesRequired: fit.distance.samplesRequired,
+      },
+      garment: sd.garment,
+      performance: {
+        renderFps: currentRenderFpsRef.current,
+        inferenceFps: tracker?.stats.inferenceFps ?? 0,
+        inferenceMs: tracker?.stats.inferenceMs ?? 0,
+        fitMs: fit.fitDurationMs,
+        garmentUpdateMs: sd.garmentUpdateMs,
+        simStepMs: sd.garment?.simulation.stepMs ?? 0,
+        renderMs: sd.renderMs,
+        frameMs: lastFrameMsRef.current,
+        drawCalls: sd.drawCalls,
+        triangles: sd.triangles,
+        delegate: tracker?.stats.delegate ?? "none",
+      },
+      operatingMode: fit.operatingMode,
+      framingGuidance: fit.framingGuidance,
+      measurements: fit.measurements,
+      ease: fit.ease,
+    };
+  };
+
+  const startPoseTracking = async (session: number) => {
+    const video = videoRef.current;
+    const tracker = poseTrackerRef.current;
+    if (!video || !tracker) return;
+    const callbacks: PoseTrackerCallbacks = {
+      onKeypoints: (keypoints, landmarks) => {
+        if (session !== sessionRef.current) return;
+        poseFrameRef.current = { keypoints, landmarks, frameId: poseFrameRef.current.frameId + 1 };
+        if (overlaysVisibleRef.current) setRawLandmarks(landmarks);
+        const body: BodyTrackingStatus = keypoints ? "detected" : "lost";
+        if (statusRef.current.body !== body) {
+          statusRef.current.body = body;
+          setBodyTrackingStatus(body);
+          setTrackingStatus(keypoints ? "body_detected" : "body_lost");
+        }
+      },
+      onStatusChange: (status) => {
+        if (session === sessionRef.current) setTrackingStatus(status);
+      },
+      onError: (err) => {
+        console.error("AR Pose Tracking Error:", err);
+        if (session === sessionRef.current) setErrorMessage("Spatial tracking interrupted. Repositioning...");
+      },
+    };
+    poseCallbacksRef.current = callbacks;
+    await tracker.startTracking(video, callbacks);
+  };
+
   const handleStartCamera = async () => {
+    if (renderRafRef.current !== null) return; // already running
+    const session = ++sessionRef.current;
     setErrorMessage(null);
     setCameraStatus("initializing");
     setTrackingStatus("initializing");
 
     try {
-      if (!videoRef.current || !threeContainerRef.current) {
-        throw new Error("VIEWPORT_CONTAINER_UNAVAILABLE");
-      }
+      if (!videoRef.current || !threeContainerRef.current) throw new Error("VIEWPORT_CONTAINER_UNAVAILABLE");
 
-      // 1. Initialize Camera Stream
       const cameraManager = new CameraManager();
       cameraManagerRef.current = cameraManager;
-      const { width, height, aspect } = await cameraManager.startCamera(videoRef.current, {
-        facingMode: "user",
-      });
+      const { width, height, aspect } = await cameraManager.startCamera(videoRef.current, { facingMode: "user" });
+      if (session !== sessionRef.current) return;
       setCameraAspect(aspect);
+      setFacingMode(cameraManager.facingMode);
       setCameraStatus("active");
 
-      // 2. Initialize Three.js WebGL2 Scene with MHR Body Proxy
       threeContainerRef.current.innerHTML = "";
-      const threeScene = new ThreeSceneManager(threeContainerRef.current);
-      threeScene.resize(threeContainerRef.current.clientWidth, threeContainerRef.current.clientHeight);
-      threeSceneRef.current = threeScene;
+      const scene = new ThreeSceneManager(threeContainerRef.current);
+      threeSceneRef.current = scene;
+      scene.resize(threeContainerRef.current.clientWidth, threeContainerRef.current.clientHeight);
 
-      // 3. Initialize Parametric Fitting Engine
-      const fitting = new FittingEngine();
-      fitting.calibrationManager.updateResolution(width, height);
+      const fitting = new FittingEngine(width, height);
       fittingEngineRef.current = fitting;
+      setIsCalibrated(false);
 
-      // Set initial projection matrix directly from calibrated intrinsics
-      const isMirrored = cameraManager.facingMode === "user";
-      const initialProjMatrix = fitting.calibrationManager.buildThreeProjectionMatrix(0.05, 20.0, isMirrored);
-      threeScene.setCalibratedProjectionMatrix(initialProjMatrix, isMirrored);
+      setFittingStatus("loading");
+      await scene.loadGarment(selectedGarmentRef.current);
+      if (session !== sessionRef.current) return;
+      setFittingStatus("ready");
 
-      // 4. Load initial 3D Garment Model with PBR Sheen & XPBD Rig
-      setGarmentFittingStatus("loading");
-      await threeScene.loadGarment(selectedGarmentRef.current);
-      setGarmentFittingStatus("ready");
+      poseTrackerRef.current = new PoseTracker();
+      await startPoseTracking(session);
+      if (session !== sessionRef.current) return;
 
-      // 5. Initialize & Start MediaPipe Pose Landmarker with 1€ filter
-      const poseTracker = new PoseTracker();
-      poseTrackerRef.current = poseTracker;
-
-      await poseTracker.startTracking(videoRef.current, {
-        onKeypoints: (keypoints, landmarks) => {
-          latestKeypointsRef.current = keypoints;
-          setRawLandmarks(landmarks);
-          if (keypoints) {
-            setBodyTrackingStatus("detected");
-            setTrackingStatus("body_detected");
-          } else {
-            setBodyTrackingStatus("lost");
-            setTrackingStatus("body_lost");
-          }
-        },
-        onStatusChange: (status) => {
-          setTrackingStatus(status);
-        },
-        onError: (err) => {
-          console.error("AR Pose Tracking Error:", err);
-          setErrorMessage("Spatial tracking interrupted. Repositioning...");
-        },
-      });
-
-      // 6. Continuous Three.js Render & Parametric Fitting Loop
-      const renderLoop = () => {
-        const scene = threeSceneRef.current;
+      lastFpsTimeRef.current = performance.now();
+      const renderLoop = (now: number) => {
+        if (session !== sessionRef.current) return;
+        const t0 = performance.now();
+        const sceneNow = threeSceneRef.current;
         const fittingEngine = fittingEngineRef.current;
-        const kp = latestKeypointsRef.current;
-        const currentGarment = selectedGarmentRef.current;
         const video = videoRef.current;
 
         renderFrameCountRef.current++;
-        const nowFpsTime = performance.now();
-        if (nowFpsTime - lastFpsTimeRef.current >= 500) {
-          currentRenderFpsRef.current = (renderFrameCountRef.current * 1000) / (nowFpsTime - lastFpsTimeRef.current);
+        if (now - lastFpsTimeRef.current >= 500) {
+          currentRenderFpsRef.current = (renderFrameCountRef.current * 1000) / (now - lastFpsTimeRef.current);
           renderFrameCountRef.current = 0;
-          lastFpsTimeRef.current = nowFpsTime;
+          lastFpsTimeRef.current = now;
         }
 
-        if (scene && fittingEngine) {
-          const isFrontCamera = cameraManagerRef.current?.facingMode === "user";
+        if (sceneNow && fittingEngine && video && video.videoWidth > 0) {
+          const vW = video.videoWidth;
+          const vH = video.videoHeight;
+          fittingEngine.calibrationManager.updateResolution(vW, vH);
 
-          if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            // Adaptive Environmental Lighting from Video Frame
-            scene.updateEnvironmentalLighting(video);
-          }
-
-          if (kp) {
-            const vWidth = video?.videoWidth || 1280;
-            const vHeight = video?.videoHeight || 720;
-
-            // Execute Parametric Pipeline
-            const fitResult = fittingEngine.processFrame(
-              kp,
-              currentGarment,
-              vWidth,
-              vHeight,
-              isFrontCamera
-            );
-
-            // Update Three.js camera projection matrix with calibrated intrinsics
-            const projMat = fittingEngine.calibrationManager.buildThreeProjectionMatrix(
-              0.05,
-              20.0,
-              isFrontCamera
-            );
-            scene.setCalibratedProjectionMatrix(projMat, isFrontCamera);
-
-            // Apply body shape adaptation & ease clearances to garment mesh
-            scene.adaptGarmentToBody(fitResult.measurements);
-
-            // Set unified 6-DoF poses with joint rotations and limb occluders
-            scene.setTargetPoses(
-              fitResult.garmentPose,
-              fitResult.bodyPose,
-              fitResult.pnpResult.jointRotations,
-              fitResult.limbJoints
-            );
-
-            setGarmentFittingStatus("fitting_active");
-
-            // Throttle React UI state updates to ~10 FPS for peak rendering smoothness
-            const now = performance.now();
-            if (now - lastUiUpdateRef.current > 100) {
-              lastUiUpdateRef.current = now;
-              setOperatingMode(fitResult.operatingMode);
-              setFramingGuidance(fitResult.framingGuidance);
-              setFramingMessage(fitResult.framingMessage);
-              setEstimatedDistanceZ(fitResult.estimatedDistanceZ);
-              setBodyMeasurements(fitResult.measurements);
-              setGarmentEase(fitResult.ease);
-              setIsCalibrated(fittingEngine.calibrationManager.getIntrinsics().isCalibrated);
-
-              setDiagnosticMetrics({
-                videoResolution: { width: vWidth, height: vHeight },
-                canvasResolution: {
-                  width: threeContainerRef.current?.clientWidth || vWidth,
-                  height: threeContainerRef.current?.clientHeight || vHeight,
-                  dpr: typeof window !== "undefined" ? window.devicePixelRatio : 1,
-                },
-                trackingFps: 30,
-                renderFps: currentRenderFpsRef.current,
-                operatingMode: fitResult.operatingMode,
-                framingGuidance: fitResult.framingGuidance,
-                estimatedDistanceZ: fitResult.estimatedDistanceZ,
-                pnpRootPosition: fitResult.pnpResult.rootPosition,
-                pnpRootRotation: fitResult.pnpResult.rootRotation,
-                pnpReprojectionError: fitResult.pnpResult.reprojectionError,
-                measurements: fitResult.measurements,
-                ease: fitResult.ease,
-                activeGarmentId: currentGarment.id,
-              });
+          // 1–2. Display transform + projection (cheap no-ops when unchanged).
+          const { width: cw, height: ch } = containerSizeRef.current;
+          if (cw > 0 && ch > 0) {
+            const display = computeVideoDisplayTransform(vW, vH, cw, ch, VIDEO_OBJECT_FIT);
+            const key = `${vW}x${vH}|${cw}x${ch}`;
+            if (key !== displayKeyRef.current) {
+              displayKeyRef.current = key;
+              displayRef.current = display;
+              setDisplayTransform(display);
             }
-          } else {
-            scene.setTargetPoses(null, null);
-            setGarmentFittingStatus("ready");
+            sceneNow.setProjection(fittingEngine.calibrationManager.getIntrinsics(), displayRef.current ?? display);
+          }
+          sceneNow.updateEnvironmentalLighting(video, now);
+
+          // 3. Fitting runs once per NEW pose frame.
+          const pf = poseFrameRef.current;
+          if (pf.frameId !== processedFrameIdRef.current) {
+            processedFrameIdRef.current = pf.frameId;
+            if (pf.keypoints) {
+              const fit = fittingEngine.processFrame(pf.keypoints, selectedGarmentRef.current, vW, vH);
+              latestFitRef.current = fit;
+              sceneNow.setFrameTarget(fit, now);
+              setFittingStatus(fit.pnpResult.valid ? "fitting_active" : "ready");
+            } else {
+              latestFitRef.current = null;
+              sceneNow.setFrameTarget(null, now);
+              setFittingStatus("ready");
+            }
           }
 
-          scene.render();
-        }
+          // 4. Render.
+          sceneNow.render(now);
 
+          // 5. Throttled UI.
+          const fit = latestFitRef.current;
+          if (fit && now - lastUiUpdateRef.current > UI_UPDATE_INTERVAL_MS) {
+            lastUiUpdateRef.current = now;
+            setOperatingMode(fit.operatingMode);
+            setFramingGuidance(fit.framingGuidance);
+            setFramingMessage(fit.framingMessage);
+            setEstimatedDistanceZ(fit.distance.distanceM);
+            setDistanceMode(fit.distance.mode);
+            setLandmarkConfidence(fit.tracking.landmarkConfidence);
+            setBodyMeasurements(fit.measurements);
+            setGarmentEase(fit.ease);
+            setIsCalibrated(fittingEngine.calibrationManager.getIntrinsics().isCalibrated);
+            if (diagnosticsVisibleRef.current) setDiagnosticMetrics(buildDiagnostics(fit, video, fittingEngine, sceneNow));
+          }
+        }
+        lastFrameMsRef.current = performance.now() - t0;
         renderRafRef.current = requestAnimationFrame(renderLoop);
       };
 
@@ -331,10 +434,19 @@ export default function VirtualTryOnExperience({
     } catch (err: unknown) {
       console.error("Failed to start Virtual Try-On:", err);
       const e = err as { message?: string };
+      teardownAR();
       if (e.message === "CAMERA_PERMISSION_DENIED") {
         setErrorMessage("Camera access was denied. Please allow camera permissions in your browser.");
         setCameraStatus("denied");
         setTrackingStatus("permission_denied");
+      } else if (e.message === "CAMERA_NOT_FOUND") {
+        setErrorMessage("No camera was found on this device.");
+        setCameraStatus("error");
+        setTrackingStatus("error");
+      } else if (e.message === "CAMERA_IN_USE") {
+        setErrorMessage("The camera is in use by another application.");
+        setCameraStatus("error");
+        setTrackingStatus("error");
       } else if (e.message === "WEBGL_UNAVAILABLE") {
         setErrorMessage("WebGL2 is not supported on this device or browser.");
         setCameraStatus("unsupported");
@@ -344,78 +456,76 @@ export default function VirtualTryOnExperience({
         setCameraStatus("error");
         setTrackingStatus("error");
       }
-      teardownAR();
     }
   };
 
-  // Switch Active Garment seamlessly
   const handleSelectGarment = async (garment: GarmentMetadata) => {
     setSelectedGarment(garment);
     selectedGarmentRef.current = garment;
-
-    if (threeSceneRef.current) {
-      try {
-        setGarmentFittingStatus("loading");
-        await threeSceneRef.current.loadGarment(garment);
-        setGarmentFittingStatus(latestKeypointsRef.current ? "fitting_active" : "ready");
-      } catch (err) {
-        console.error("Failed to load 3D garment mesh:", err);
-        setGarmentFittingStatus("error");
-        setErrorMessage(`Failed to switch to ${garment.name}`);
-      }
+    const scene = threeSceneRef.current;
+    if (!scene) return;
+    const session = sessionRef.current;
+    try {
+      setFittingStatus("loading");
+      await scene.loadGarment(garment);
+      if (session !== sessionRef.current) return;
+      setFittingStatus(latestFitRef.current?.pnpResult.valid ? "fitting_active" : "ready");
+    } catch (err) {
+      if (session !== sessionRef.current) return;
+      console.error("Failed to load 3D garment mesh:", err);
+      setFittingStatus("error");
+      setErrorMessage(`Failed to switch to ${garment.name}`);
     }
   };
 
-  // Flip Camera
   const handleSwitchCamera = async () => {
-    if (!cameraManagerRef.current || !videoRef.current) return;
+    const cam = cameraManagerRef.current;
+    if (!cam || !videoRef.current) return;
+    const session = sessionRef.current;
     try {
-      const res = await cameraManagerRef.current.switchCamera();
-      if (res) {
-        setCameraAspect(res.aspect);
-        if (threeSceneRef.current && threeContainerRef.current) {
-          threeSceneRef.current.resize(
-            threeContainerRef.current.clientWidth,
-            threeContainerRef.current.clientHeight
-          );
-        }
-      }
+      poseTrackerRef.current?.stopTracking();
+      const res = await cam.switchCamera();
+      if (session !== sessionRef.current || !res) return;
+      setCameraAspect(res.aspect);
+      setFacingMode(cam.facingMode);
+      // New sensor: previous reference pose, proportions and temporal priors are invalid.
+      fittingEngineRef.current?.resetSubjectState();
+      fittingEngineRef.current?.calibrationManager.resetToPopulationPrior(res.width, res.height);
+      setIsCalibrated(false);
+      displayKeyRef.current = "";
+      await startPoseTracking(session);
     } catch (err) {
       console.error("Camera switch error:", err);
+      setErrorMessage("Could not switch camera.");
     }
   };
 
-  // Toggle Skeleton / MHR Proxy Wireframe
-  const handleToggleSkeleton = () => {
-    const nextVal = !showSkeleton;
-    setShowSkeleton(nextVal);
-    if (threeSceneRef.current) {
-      threeSceneRef.current.setDebugSkeletonVisible(nextVal);
-    }
-  };
+  const handleToggleSkeleton = () => setShowSkeleton((v) => !v);
 
-  // Perform ISO ID-1 Reference Card Calibration
   const handleApplyCardCalibration = () => {
-    if (!fittingEngineRef.current) return;
-    const cardAspect = 85.6 / 53.98;
-    const heightPx = cardWidthPxInput / cardAspect;
-
-    const newIntrinsics = fittingEngineRef.current.calibrationManager.calibrateWithReferenceCard(
-      cardWidthPxInput,
-      heightPx,
-      cardDistanceInput
-    );
-
-    setIsCalibrated(newIntrinsics.isCalibrated);
-    setCalibrationModalOpen(false);
+    const fitting = fittingEngineRef.current;
+    if (!fitting) return;
+    try {
+      const k = fitting.calibrationManager.calibrateWithReferenceCard(
+        cardWidthPxInput,
+        cardWidthPxInput / (85.6 / 53.98),
+        cardDistanceInput
+      );
+      setIsCalibrated(k.isCalibrated);
+      setCalibrationModalOpen(false);
+    } catch {
+      setErrorMessage("Calibration needs a positive card width and distance.");
+    }
   };
 
-  // Reset to Population Prior Calibration
+  // Reset to Population Prior: the returned intrinsics become ACTIVE (version bump ⇒ the
+  // projection matrix is rebuilt on the next frame).
   const handleResetPriorCalibration = () => {
-    if (!fittingEngineRef.current || !videoRef.current) return;
+    const fitting = fittingEngineRef.current;
+    if (!fitting || !videoRef.current) return;
     const w = videoRef.current.videoWidth || 1280;
     const h = videoRef.current.videoHeight || 720;
-    fittingEngineRef.current.calibrationManager.createPopulationPrior(w, h);
+    fitting.calibrationManager.resetToPopulationPrior(w, h);
     setIsCalibrated(false);
     setCalibrationModalOpen(false);
   };
@@ -474,10 +584,11 @@ export default function VirtualTryOnExperience({
             bodyTrackingStatus={bodyTrackingStatus}
             garmentFittingStatus={garmentFittingStatus}
             activeGarmentName={selectedGarment.name}
-            confidence={latestKeypointsRef.current?.confidence}
+            confidence={landmarkConfidence}
             operatingMode={operatingMode}
             isCalibrated={isCalibrated}
             estimatedDistanceZ={estimatedDistanceZ}
+            distanceMode={distanceMode}
             ease={garmentEase}
           />
 
@@ -525,7 +636,7 @@ export default function VirtualTryOnExperience({
             <CameraViewport
               videoRef={videoRef}
               threeContainerRef={threeContainerRef}
-              isMirrored={cameraManagerRef.current?.facingMode === "user"}
+              isMirrored={facingMode === "user"}
               trackingStatus={trackingStatus}
               rawLandmarks={rawLandmarks}
               showSkeleton={showSkeleton}
@@ -533,6 +644,9 @@ export default function VirtualTryOnExperience({
               showDiagnostics={showDiagnostics}
               onToggleDiagnostics={() => setShowDiagnostics((prev) => !prev)}
               diagnosticMetrics={diagnosticMetrics}
+              diagnosticLayers={diagnosticLayers}
+              onDiagnosticLayersChange={setDiagnosticLayers}
+              displayTransform={displayTransform}
               onSwitchCamera={isCameraActive ? handleSwitchCamera : undefined}
               onOpenCalibration={() => setCalibrationModalOpen(true)}
               aspectRatio={cameraAspect}
@@ -553,7 +667,7 @@ export default function VirtualTryOnExperience({
                     : "FULL-BODY MODE (1.8–2.5M) • HIP KINEMATICS & HEM DRAPE ACTIVE"}
                 </span>
               </div>
-              <span className="text-acid-lime">MHR BODY PROXY • XPBD CLOTH</span>
+              <span className="text-acid-lime">BODY PROXY • XPBD CLOTH</span>
             </div>
           </div>
 
@@ -618,10 +732,12 @@ export default function VirtualTryOnExperience({
                   <div className="flex items-center justify-between text-electric-blue">
                     <span className="uppercase tracking-widest font-semibold flex items-center space-x-1.5">
                       <Ruler className="w-3.5 h-3.5" />
-                      <span>Parametric Body Reconstruction</span>
+                      <span>Body Estimate</span>
                     </span>
                     <span className="text-[9px] text-warm-ivory/50">
-                      {isCalibrated ? "METRIC VERIFIED" : "STATISTICAL PRIOR"}
+                      {bodyMeasurements.scaleSource === "known_distance"
+                        ? `KNOWN-DISTANCE SCALE ±${bodyMeasurements.uncertaintyCm ?? "?"} CM`
+                        : `ASSUMED BODY SCALE ±${bodyMeasurements.uncertaintyCm ?? "?"} CM`}
                     </span>
                   </div>
 
@@ -663,14 +779,18 @@ export default function VirtualTryOnExperience({
                       </span>
                       <span
                         className={`font-semibold ${
-                          garmentEase.isTooSmall
+                          garmentEase.reliable === false
+                            ? "text-warm-ivory/50"
+                            : garmentEase.isTooSmall
                             ? "text-red-400"
                             : garmentEase.estimatedStrainPercent > 0
                             ? "text-amber-400"
                             : "text-acid-lime"
                         }`}
                       >
-                        {garmentEase.isTooSmall
+                        {garmentEase.reliable === false
+                          ? "Indicative only — not a size recommendation"
+                          : garmentEase.isTooSmall
                           ? `Too Small (+${garmentEase.estimatedStrainPercent}% Strain)`
                           : garmentEase.estimatedStrainPercent > 0
                           ? `Snug (+${garmentEase.estimatedStrainPercent}% Stretch)`
@@ -723,10 +843,10 @@ export default function VirtualTryOnExperience({
           <div className="p-4 bg-ink-black/40 border border-warm-ivory/10 space-y-2">
             <div className="flex items-center space-x-2 text-electric-blue font-medium">
               <Sparkles className="w-4 h-4" />
-              <h5 className="uppercase tracking-wider">Parametric MHR Body Fitting</h5>
+              <h5 className="uppercase tracking-wider">Parametric Body Proxy Fitting</h5>
             </div>
             <p className="text-[11px] font-light leading-relaxed text-warm-ivory/60">
-              Momentum Human Rig proxy with robust PnP root estimation, Ramanujan elliptical torso reconstruction, and LBS/DQS skeletal deformation.
+              MHR-inspired elliptical torso proxy posed by robust PnP. Garments are anchored to it, articulated at the sleeves and pushed out to body clearance via nearest-surface correspondence.
             </p>
           </div>
 
@@ -736,7 +856,7 @@ export default function VirtualTryOnExperience({
               <h5 className="uppercase tracking-wider">XPBD Secondary Cloth Drape</h5>
             </div>
             <p className="text-[11px] font-light leading-relaxed text-warm-ivory/60">
-              Extended Position-Based Dynamics (XPBD) cloth solver with body-proxy collision, long-range attachments, and depth-only foreground hand/arm occlusion.
+              XPBD secondary motion on each garment&apos;s body panel (stretch, bending, tether and body-proxy collision), plus depth-only arm occlusion. Sleeves are articulated rigidly.
             </p>
           </div>
         </div>
@@ -761,7 +881,7 @@ export default function VirtualTryOnExperience({
             <h3 className="font-serif text-2xl font-light">ISO ID-1 Reference Card</h3>
 
             <p className="text-xs font-mono text-warm-ivory/70 leading-relaxed">
-              Monocular RGB webcams do not provide absolute metric depth. Hold a standard credit/identity card (85.60 mm width) parallel to the camera at approximately 0.5 meters to calibrate exact focal length.
+              Monocular RGB webcams do not provide absolute metric depth. Hold a standard credit/identity card (85.60 mm width) parallel to the camera at approximately 0.5 meters to calibrate the focal length. This does not calibrate your body size.
             </p>
 
             <div className="space-y-3 font-mono text-xs">
@@ -829,19 +949,19 @@ export default function VirtualTryOnExperience({
 
             <div className="space-y-3 text-xs font-mono text-warm-ivory/80 leading-relaxed">
               <p>
-                <strong>Camera Projection:</strong> True pinhole camera model K with off-axis frustum directly mapped to stream dimensions, aspect ratio, and mirroring.
+                <strong>Camera Projection:</strong> Pinhole model K (population prior or card-calibrated focal length) with an off-axis frustum that includes the video&apos;s object-fit crop. Mirroring is a single CSS reflection of the whole layer stack.
               </p>
               <p>
                 <strong>Tracking & Jitter Filter:</strong> 1€ Filter (Casiez et al., 2012) on joint positions and quaternion SLERP in SO(3).
               </p>
               <p>
-                <strong>Parametric Body:</strong> Momentum Human Rig (MHR) proxy with elliptical torso cross-sections and capsule limb colliders.
+                <strong>Parametric Body:</strong> A simplified MHR-inspired proxy (elliptical torso sections, capsule limbs). It is not a full MHR reconstruction.
               </p>
               <p>
-                <strong>Anthropometry:</strong> Ramanujan ellipse perimeter formulation for chest, waist, and hip circumference reconstruction.
+                <strong>Anthropometry:</strong> Body proportions are observed; absolute size is assumed from an anthropometric prior because a single webcam cannot measure it. Circumferences are indicative only.
               </p>
               <p>
-                <strong>Cloth Dynamics:</strong> Extended Position-Based Dynamics (XPBD) secondary simulation with stretch, bending, and skin attachment constraints.
+                <strong>Cloth Dynamics:</strong> XPBD secondary simulation (fixed 60 Hz step) about the fitted garment shape, with stretch, bending, tether and collision constraints.
               </p>
               <p>
                 <strong>Occlusion:</strong> Depth-only body proxy (colorWrite: false) occludes 3D garments when arms/hands pass in front of torso.

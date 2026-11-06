@@ -10,7 +10,20 @@
  * 4. Measurement Confidence Matrix W and Anthropometric Prior Regularization
  */
 
-import { BodyKeypoints, BodyMeasurements, CameraIntrinsics } from './types';
+import { BodyMeasurements } from './types';
+
+export const BODY_MEASUREMENT_FACTORS = {
+  BIACROMIAL_PER_LANDMARK: 1.15,
+  CHEST_PER_BIACROMIAL: 0.92,
+  CHEST_DEPTH_RATIO: 0.65,
+  WAIST_PER_BIACROMIAL: 0.8,
+  WAIST_DEPTH_RATIO: 0.68,
+  HIP_PER_LANDMARK: 1.35,
+  HIP_DEPTH_RATIO: 0.68,
+  HEIGHT_PER_TORSO: 3.3,
+  ARM_PER_TORSO: 1.12,
+  INSEAM_PER_HEIGHT: 0.45,
+};
 
 export class PersonalizedBodyShapeEstimator {
   // Population mean measurement vector m̄ (in centimeters)
@@ -56,88 +69,76 @@ export class PersonalizedBodyShapeEstimator {
   }
 
   /**
-   * Estimates 3D anthropometric measurements from 2D body keypoints and camera intrinsics.
+   * Estimates body measurements from the scale-bearing body model.
+   *
+   * WHAT IS OBSERVED vs ASSUMED
+   *   Observed (scale-free): ratios hip-span / shoulder-span and torso-length / shoulder-span,
+   *   measured in yaw-corrected image pixels.
+   *   Assumed: the absolute shoulder-landmark breadth B (from MediaPipe world landmarks or the
+   *   population prior) unless the user supplied a known distance. Therefore every centimetre
+   *   value below inherits B's uncertainty; with scaleSource = 'anthropometric_prior' they are
+   *   indicative only and must not be presented as measurements.
+   *
+   * ANTHROPOMETRIC FACTORS (documented approximations)
+   *   biacromial breadth  ≈ 1.15 × shoulder-landmark breadth (landmarks sit near joint centres)
+   *   chest breadth       ≈ 0.92 × biacromial,  depth/breadth ≈ 0.65
+   *   waist breadth       ≈ 0.80 × biacromial,  depth/breadth ≈ 0.68
+   *   hip breadth         ≈ 1.35 × hip-landmark breadth (soft tissue lateral to the joints),
+   *                         depth/breadth ≈ 0.68
+   *   circumference       = Ramanujan ellipse perimeter
    */
-  estimateMeasurements(
-    keypoints: BodyKeypoints,
-    distanceZ: number,
-    intrinsics: CameraIntrinsics
-  ): BodyMeasurements {
-    const { fx, fy, width, height, isCalibrated } = intrinsics;
+  estimateFromBodyModel(model: {
+    shoulderBreadthM: number;
+    hipBreadthM: number;
+    torsoLengthM: number;
+    scaleSource: 'anthropometric_prior' | 'known_distance';
+    shoulderVisibility: number;
+    hipVisibility: number;
+  }): BodyMeasurements & {
+    semiAxes: { chest: { a: number; b: number }; waist: { a: number; b: number }; hips: { a: number; b: number } };
+  } {
+    const F = BODY_MEASUREMENT_FACTORS;
+    const biacromial = model.shoulderBreadthM * F.BIACROMIAL_PER_LANDMARK;
+    const chestA = (biacromial * F.CHEST_PER_BIACROMIAL) / 2;
+    const waistA = (biacromial * F.WAIST_PER_BIACROMIAL) / 2;
+    const hipA = (model.hipBreadthM * F.HIP_PER_LANDMARK) / 2;
+    const chest = { a: chestA, b: chestA * F.CHEST_DEPTH_RATIO };
+    const waist = { a: waistA, b: waistA * F.WAIST_DEPTH_RATIO };
+    const hips = { a: hipA, b: hipA * F.HIP_DEPTH_RATIO };
+    const C = PersonalizedBodyShapeEstimator.computeRamanujanCircumference;
 
-    // 1. Apparent pixel spans with robust fallbacks
-    const shoulderSpanPx = (keypoints.shoulderWidth ?? Math.hypot(keypoints.rightShoulder.x - keypoints.leftShoulder.x, keypoints.rightShoulder.y - keypoints.leftShoulder.y)) * width;
-    const torsoSpanPx = (keypoints.torsoHeight ?? Math.abs(keypoints.leftHip.y - keypoints.leftShoulder.y)) * height;
-    const hipSpanPx = (keypoints.hipWidth ?? (Math.hypot(keypoints.rightHip.x - keypoints.leftHip.x, keypoints.rightHip.y - keypoints.leftHip.y) || keypoints.shoulderWidth * 0.75)) * width;
+    const chestCm = C(chest.a, chest.b) * 100;
+    const waistCm = C(waist.a, waist.b) * 100;
+    const hipCm = C(hips.a, hips.b) * 100;
+    const torsoLengthCm = model.torsoLengthM * 100;
 
-    // 2. Perspective-correct physical spans (in meters)
-    // t = (wPx / 2) / fx, radius = Z * t / sqrt(1 + t^2)
-    // span = 2 * radius
-    const computeSpanM = (wPx: number, f: number) => {
-      const t = (wPx / 2.0) / f;
-      return (2.0 * distanceZ * t) / Math.sqrt(1.0 + t * t);
-    };
-
-    // Note: Shoulder joint centres under-represent total acromial breadth by ~12-15% (tissue & deltoid cap)
-    const rawShoulderBreadthM = computeSpanM(shoulderSpanPx, fx);
-    const shoulderBreadthCm = (rawShoulderBreadthM * 1.15) * 100.0;
-
-    const torsoLengthM = computeSpanM(torsoSpanPx, fy);
-    const torsoLengthCm = torsoLengthM * 100.0;
-
-    const hipWidthM = computeSpanM(hipSpanPx, fx);
-
-    // 3. Torso circumference estimation using Ramanujan's elliptical approximation
-    // Human torso depth-to-width ratios: Chest ~0.65, Waist ~0.68, Hips ~0.68
-    const chestSemiMajor = (rawShoulderBreadthM * 0.92) / 2.0;
-    const chestCircCm =
-      PersonalizedBodyShapeEstimator.computeRamanujanCircumference(
-        chestSemiMajor,
-        chestSemiMajor * 0.65
-      ) * 100.0;
-
-    // Waist width is typically ~80% of shoulder span
-    const waistSemiMajor = (rawShoulderBreadthM * 0.80) / 2.0;
-    const waistCircCm =
-      PersonalizedBodyShapeEstimator.computeRamanujanCircumference(
-        waistSemiMajor,
-        waistSemiMajor * 0.68
-      ) * 100.0;
-
-    const hipSemiMajor = hipWidthM / 2.0;
-    const hipCircCm =
-      PersonalizedBodyShapeEstimator.computeRamanujanCircumference(
-        hipSemiMajor,
-        hipSemiMajor * 0.68
-      ) * 100.0;
-
-    // Arm and height estimation from proportional anthropometry
-    const armLengthCm = torsoLengthCm * 1.12;
-    const estimatedHeightCm = torsoLengthCm * 3.30;
-    const inseamCm = estimatedHeightCm * 0.45;
-
-    const shoulderVis = ((keypoints.leftShoulder.visibility ?? 1) + (keypoints.rightShoulder.visibility ?? 1)) / 2;
-    const hipVis = ((keypoints.leftHip.visibility ?? 1) + (keypoints.rightHip.visibility ?? 1)) / 2;
-
-    const confidenceFactor = isCalibrated ? 0.95 : 0.70;
+    // Relative scale uncertainty: ~12 % with the prior (adult biacromial CV), ~5 % with a known
+    // distance (residual landmark and factor error).
+    const relSigma = model.scaleSource === 'known_distance' ? 0.05 : 0.12;
+    const scaleConf = model.scaleSource === 'known_distance' ? 0.85 : 0.35;
+    const round1 = (v: number) => Math.round(v * 10) / 10;
+    const round2 = (v: number) => Math.round(v * 100) / 100;
 
     return {
-      heightCm: Math.round(estimatedHeightCm),
-      shoulderBreadthCm: Math.round(shoulderBreadthCm * 10) / 10,
-      chestCircumferenceCm: Math.round(chestCircCm * 10) / 10,
-      waistCircumferenceCm: Math.round(waistCircCm * 10) / 10,
-      hipCircumferenceCm: Math.round(hipCircCm * 10) / 10,
-      torsoLengthCm: Math.round(torsoLengthCm * 10) / 10,
-      armLengthCm: Math.round(armLengthCm * 10) / 10,
-      inseamCm: Math.round(inseamCm * 10) / 10,
+      heightCm: Math.round(torsoLengthCm * F.HEIGHT_PER_TORSO),
+      shoulderBreadthCm: round1(biacromial * 100),
+      chestCircumferenceCm: round1(chestCm),
+      waistCircumferenceCm: round1(waistCm),
+      hipCircumferenceCm: round1(hipCm),
+      torsoLengthCm: round1(torsoLengthCm),
+      armLengthCm: round1(torsoLengthCm * F.ARM_PER_TORSO),
+      inseamCm: round1(torsoLengthCm * F.HEIGHT_PER_TORSO * F.INSEAM_PER_HEIGHT),
       confidence: {
-        overall: Math.round(confidenceFactor * keypoints.confidence * 100) / 100,
-        shoulders: Math.round(confidenceFactor * shoulderVis * 100) / 100,
-        chest: Math.round(confidenceFactor * shoulderVis * 0.9 * 100) / 100,
-        waist: Math.round(confidenceFactor * ((shoulderVis + hipVis) / 2) * 100) / 100,
-        hips: Math.round(confidenceFactor * hipVis * 100) / 100,
+        overall: round2(scaleConf * Math.min(model.shoulderVisibility, model.hipVisibility)),
+        shoulders: round2(scaleConf * model.shoulderVisibility),
+        chest: round2(scaleConf * model.shoulderVisibility * 0.85),
+        waist: round2(scaleConf * ((model.shoulderVisibility + model.hipVisibility) / 2) * 0.8),
+        hips: round2(scaleConf * model.hipVisibility * 0.85),
       },
-      isEstimated: !isCalibrated,
+      isEstimated: true,
+      scaleSource: model.scaleSource,
+      uncertaintyCm: round1(relSigma * chestCm),
+      semiAxes: { chest, waist, hips },
     };
   }
 

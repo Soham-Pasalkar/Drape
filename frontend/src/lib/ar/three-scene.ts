@@ -1,83 +1,106 @@
 /**
- * DRAPE Three.js WebGL2 Scene Manager (Parametric Architecture)
+ * DRAPE Three.js Scene Manager
  *
- * Implements:
- * 1. Off-axis pinhole camera projection matrix directly from calibrated intrinsics.
- * 2. MHR Body Proxy with depth-only occlusion geometry (colorWrite = false, depthWrite = true).
- * 3. Luxury PBR fabric materials with KHR_materials_sheen properties and procedural micro-weave normals.
- * 4. Environmental webcam lighting adaptation (ambient color, illuminance, key direction).
- * 5. Garment correspondence deformation & XPBD cloth simulation updates.
- * 6. High-performance, zero-leak WebGL2 resource lifecycle management.
+ * Owns the WebGL renderer, the camera (projection built from intrinsics + the video display
+ * transform, never mirrored — see coordinates.ts), lighting, the body root and the active
+ * garment instance. The scene graph is:
+ *
+ *   scene
+ *    ├─ lights
+ *    └─ bodyRoot  ← single smoothed body pose (body-local → camera), from the fitting engine
+ *        ├─ bodyProxy.group      (identity: proxy geometry is authored in body-local space)
+ *        └─ garment wrapper      (see garment-instance.ts for the anchor hierarchy)
+ *
+ * Because the garment hangs under the same bodyRoot as the proxy, garment and body share one
+ * transform by construction — there is no separately interpolated "garment pose".
  */
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { GarmentMetadata, Transform3D, BodyMeasurements, CameraIntrinsics, MHRJointName } from './types';
-import { RigidPose3D } from './fitting-engine';
-import { MHRBodyProxy } from './mhr-body-proxy';
+import { CameraIntrinsics, GarmentMetadata, MHRJointName } from './types';
+import { MHRBodyProxy, BodyShape } from './mhr-body-proxy';
 import { FabricMaterialFactory } from './fabric-materials';
 import { EnvironmentalLightingEstimator } from './environmental-lighting';
-import { GarmentCorrespondenceManager, VertexCorrespondence } from './garment-correspondence';
-import { XPBDClothSolver } from './xpbd-cloth-solver';
-import { SkeletalSkinningEngine } from './skeletal-skinning';
+import { GarmentInstance, GarmentDebugFlags, GarmentDiagnostics, SimulationData } from './garment-instance';
+import { buildProjectionMatrix, VideoDisplayTransform } from './coordinates';
+import { DetailedFittingResult } from './fitting-engine';
+
+export interface SceneDebugLayers extends GarmentDebugFlags {
+  bodyProxy: boolean;
+}
+
+export interface SceneDiagnostics {
+  garment: GarmentDiagnostics | null;
+  renderMs: number;
+  garmentUpdateMs: number;
+  contextLost: boolean;
+  drawCalls: number;
+  triangles: number;
+}
+
+/** Pose smoothing time constants (s). The fitting engine already filters; keep these short. */
+const POSE_TAU_S = 0.05;
+/** Acceleration low-pass (s) and clamp (m/s²) for cloth inertial coupling. */
+const ACCEL_TAU_S = 0.1;
+const ACCEL_CLAMP = 10;
+/** Environmental lighting is a GPU→CPU readback; 4 Hz is plenty for slow lighting changes. */
+const LIGHTING_INTERVAL_MS = 250;
+/** After this long without tracking, the pose snaps instead of easing on re-acquisition. */
+const SNAP_AFTER_LOSS_MS = 500;
 
 export class ThreeSceneManager {
   private container: HTMLElement;
   private renderer: THREE.WebGLRenderer | null = null;
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
-  private gltfLoader: GLTFLoader;
+  private gltfLoader = new GLTFLoader();
 
-  // Body Proxy & Depth Occlusion
   public bodyProxy: MHRBodyProxy;
+  public bodyRoot: THREE.Group;
 
-  // Active Garment Model & Skinning/Simulation Subsystems
-  private currentModelGroup: THREE.Group | null = null;
-  private activeGarmentId: string | null = null;
-  private modelCache: Map<string, THREE.Group> = new Map();
-  private garmentMeshes: THREE.Mesh[] = [];
+  private instances = new Map<string, GarmentInstance>();
+  private materials = new Map<string, THREE.MeshPhysicalMaterial>();
+  private loading = new Map<string, Promise<GarmentInstance>>();
+  private active: GarmentInstance | null = null;
 
-  // Correspondence & XPBD Solver
-  private correspondenceManager: GarmentCorrespondenceManager;
-  private meshCorrespondences: Map<string, VertexCorrespondence[]> = new Map();
-  private xpbdSolver: XPBDClothSolver | null = null;
-  private skinningEngine: SkeletalSkinningEngine;
-
-  // Environmental Lighting
-  private lightingEstimator: EnvironmentalLightingEstimator;
+  private lightingEstimator = new EnvironmentalLightingEstimator();
   private ambientLight!: THREE.AmbientLight;
   private keyLight!: THREE.DirectionalLight;
-  private fillLight!: THREE.DirectionalLight;
-  private rimLight!: THREE.DirectionalLight;
+  private lastLightingAt = 0;
 
-  // Animation & Interpolation
-  private targetTransform: Transform3D | null = null;
-  private currentTransform: Transform3D = {
-    position: [0, 0, -1.6],
-    rotation: [0, 0, 0],
-    scale: [1, 1, 1],
-  };
+  // Targets from the latest fit.
+  private hasTarget = false;
+  private tracking = false;
+  private lastTrackedAt = 0;
+  private targetPos = new THREE.Vector3(0, 0, -1.6);
+  private targetQuat = new THREE.Quaternion();
+  private targetScale = new THREE.Vector3(1, 1, 1);
+  private armL: THREE.Vector3 | null = null;
+  private armR: THREE.Vector3 | null = null;
+  private chordL: THREE.Vector3 | null = null;
+  private chordR: THREE.Vector3 | null = null;
 
-  // 6-DoF Rigid Poses for Garment and Body Proxy (Vector & Quaternion)
-  private targetGarmentPos = new THREE.Vector3(0, 0, -1.6);
-  private targetGarmentQuat = new THREE.Quaternion();
-  private targetGarmentScale = new THREE.Vector3(1, 1, 1);
-  private currentGarmentPos = new THREE.Vector3(0, 0, -1.6);
-  private currentGarmentQuat = new THREE.Quaternion();
-  private currentGarmentScale = new THREE.Vector3(1, 1, 1);
+  // Kinematics for inertial coupling.
+  private prevPos: THREE.Vector3 | null = null;
+  private prevVel = new THREE.Vector3();
+  private accel = new THREE.Vector3();
 
-  private targetBodyPos = new THREE.Vector3(0, 0, -1.6);
-  private targetBodyQuat = new THREE.Quaternion();
-  private currentBodyPos = new THREE.Vector3(0, 0, -1.6);
-  private currentBodyQuat = new THREE.Quaternion();
-
-  private hasPoses = false;
-  private latestJointRotations: Record<MHRJointName, [number, number, number, number]> | null = null;
-  private latestLimbJoints: Partial<Record<MHRJointName, [number, number, number]>> | null = null;
-
+  private projectionKey = '';
   private isDisposed = false;
-  private isMirrored = true;
-  private lastRenderTime = performance.now();
+  private contextLost = false;
+  private lastRenderTime: number | null = null;
+  private debug: SceneDebugLayers = { bodyProxy: false, bounds: false, anchors: false, correspondence: false, collisionNormals: false };
+  private lastRenderMs = 0;
+  private lastGarmentMs = 0;
+
+  private onContextLost = (e: Event) => {
+    e.preventDefault();
+    this.contextLost = true;
+  };
+  private onContextRestored = () => {
+    this.contextLost = false;
+    this.projectionKey = '';
+  };
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -85,470 +108,275 @@ export class ThreeSceneManager {
 
     const width = container.clientWidth || 1280;
     const height = container.clientHeight || 720;
-    const aspect = width / height;
+    // fov/aspect are placeholders: the projection matrix is always replaced by
+    // setProjection() before the first meaningful frame and never recomputed by three.
+    this.camera = new THREE.PerspectiveCamera(60, width / height, 0.05, 20.0);
+    this.camera.position.set(0, 0, 0);
+    this.camera.matrixAutoUpdate = false;
+    this.camera.updateMatrixWorld(true);
 
-    // 1. Perspective Camera (Initialized with standard frustum, later overwritten by calibrated matrix)
-    this.camera = new THREE.PerspectiveCamera(60, aspect, 0.05, 20.0);
-    this.camera.position.set(0, 0, 0); // Camera at origin in camera-space
-
-    // 2. WebGL2 Renderer with transparent background for AR overlay
     try {
-      this.renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: true,
-        powerPreference: 'high-performance',
-      });
-      this.renderer.setSize(width, height);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.1;
-
-      this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
-        e.preventDefault();
-        console.warn('ThreeSceneManager: WebGL context lost.');
-      });
-
-      this.container.appendChild(this.renderer.domElement);
+      this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     } catch (err) {
-      console.error('ThreeSceneManager: Failed to initialize WebGL2 renderer', err);
+      console.error('ThreeSceneManager: WebGL initialisation failed', err);
       throw new Error('WEBGL_UNAVAILABLE');
     }
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setSize(width, height);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.domElement.style.width = '100%';
+    this.renderer.domElement.style.height = '100%';
+    this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost, false);
+    this.renderer.domElement.addEventListener('webglcontextrestored', this.onContextRestored, false);
+    this.container.appendChild(this.renderer.domElement);
 
-    // 3. Studio Lighting
     this.setupLighting();
 
-    // 4. MHR Body Proxy with Depth Occlusion
-    this.bodyProxy = new MHRBodyProxy();
-    this.scene.add(this.bodyProxy.group);
+    this.bodyRoot = new THREE.Group();
+    this.bodyRoot.name = 'body_root';
+    this.bodyRoot.visible = false;
+    this.scene.add(this.bodyRoot);
 
-    // 5. Correspondence & Skinning Subsystems
-    this.correspondenceManager = new GarmentCorrespondenceManager();
-    this.skinningEngine = new SkeletalSkinningEngine();
-    this.lightingEstimator = new EnvironmentalLightingEstimator();
-    this.gltfLoader = new GLTFLoader();
+    this.bodyProxy = new MHRBodyProxy();
+    this.bodyRoot.add(this.bodyProxy.group);
   }
 
   private setupLighting(): void {
     this.ambientLight = new THREE.AmbientLight(0xffffff, 1.3);
     this.scene.add(this.ambientLight);
-
     this.keyLight = new THREE.DirectionalLight(0xfff8ee, 2.2);
     this.keyLight.position.set(1.5, 3.0, 2.0);
     this.scene.add(this.keyLight);
-
-    this.fillLight = new THREE.DirectionalLight(0xe8f0ff, 0.9);
-    this.fillLight.position.set(-2.0, -1.0, 1.5);
-    this.scene.add(this.fillLight);
-
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.7);
-    this.rimLight.position.set(0, 2.5, -2.0);
-    this.scene.add(this.rimLight);
+    const fill = new THREE.DirectionalLight(0xe8f0ff, 0.9);
+    fill.position.set(-2.0, -1.0, 1.5);
+    this.scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.7);
+    rim.position.set(0, 2.5, -2.0);
+    this.scene.add(rim);
   }
 
   /**
-   * Applies calibrated camera projection matrix directly to Three.js camera.
+   * Sets the projection from intrinsics and the video display transform. Cheap no-op when
+   * nothing changed; call every frame.
    */
-  setCalibratedProjectionMatrix(matrix: THREE.Matrix4, isMirrored = true): void {
-    this.isMirrored = isMirrored;
-    this.camera.projectionMatrix.copy(matrix);
-    this.camera.projectionMatrixInverse.copy(matrix).invert();
+  setProjection(K: CameraIntrinsics, display: VideoDisplayTransform, near = 0.05, far = 20): void {
+    const key = [K.fx, K.fy, K.cx, K.cy, display.containerWidth, display.containerHeight, display.scaleX, display.scaleY, display.offsetX, display.offsetY, near, far]
+      .map((v) => v.toFixed(4))
+      .join('|');
+    if (key === this.projectionKey) return;
+    this.projectionKey = key;
+    buildProjectionMatrix(K, display, near, far, this.camera.projectionMatrix);
+    this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
   }
 
-  /**
-   * Resizes viewport when container or camera stream resolution changes.
-   */
   resize(width: number, height: number): void {
-    if (!this.renderer || this.isDisposed) return;
-    this.renderer.setSize(width, height);
+    if (!this.renderer || this.isDisposed || width <= 0 || height <= 0) return;
+    this.renderer.setSize(width, height, false);
   }
 
-  /**
-   * Updates lighting from live webcam frame.
-   */
-  updateEnvironmentalLighting(video: HTMLVideoElement): void {
+  updateEnvironmentalLighting(video: HTMLVideoElement, nowMs = performance.now()): void {
+    if (nowMs - this.lastLightingAt < LIGHTING_INTERVAL_MS) return;
+    this.lastLightingAt = nowMs;
     const est = this.lightingEstimator.estimateFromVideo(video);
-    if (this.ambientLight) {
-      this.ambientLight.intensity = est.ambientIntensity;
-      this.ambientLight.color.copy(est.ambientColor);
-    }
-    if (this.keyLight) {
-      this.keyLight.intensity = est.keyIntensity;
+    this.ambientLight.intensity = est.ambientIntensity;
+    this.ambientLight.color.copy(est.ambientColor);
+    this.keyLight.intensity = est.keyIntensity;
+  }
+
+  private async fetchSimulationData(garment: GarmentMetadata): Promise<SimulationData | null> {
+    if (!garment.simulation.enabled) return null;
+    const url = garment.modelPath.replace(/model\.glb$/, 'simulation-data.json');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return (await res.json()) as SimulationData;
+    } catch {
+      return null;
     }
   }
 
-  /**
-   * Loads or switches to a garment model by metadata without reloading the scene.
-   */
-  async loadGarment(garment: GarmentMetadata): Promise<void> {
-    if (this.activeGarmentId === garment.id && this.currentModelGroup) return;
+  private loadInstance(garment: GarmentMetadata): Promise<GarmentInstance> {
+    const cached = this.instances.get(garment.id);
+    if (cached) return Promise.resolve(cached);
+    const inFlight = this.loading.get(garment.id);
+    if (inFlight) return inFlight;
 
-    let modelGroup = this.modelCache.get(garment.id);
-
-    if (!modelGroup) {
-      modelGroup = await new Promise<THREE.Group>((resolve, reject) => {
-        this.gltfLoader.load(
-          garment.modelPath,
-          (gltf) => {
-            const root = gltf.scene;
-            root.updateMatrixWorld(true);
-
-            // Read anchor from metadata and reposition root so anchor coincides with (0,0,0)
-            const anchor = garment.modelAnchor;
-            root.position.set(-anchor.x, -anchor.y, -anchor.z);
-
-            const wrapper = new THREE.Group();
-            wrapper.name = `garment_wrapper_${garment.id}`;
-            wrapper.add(root);
-
-            resolve(wrapper);
-          },
-          undefined,
-          (error) => reject(error)
-        );
+    const p = (async () => {
+      const [gltf, simData] = await Promise.all([this.gltfLoader.loadAsync(garment.modelPath), this.fetchSimulationData(garment)]);
+      const material = FabricMaterialFactory.createFabricMaterial(garment.material.color, garment.fabric);
+      gltf.scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const old = m.material as THREE.Material | THREE.Material[];
+        if (Array.isArray(old)) old.forEach((x) => x.dispose());
+        else old?.dispose();
+        m.material = material;
+        m.renderOrder = 1; // after the depth-only proxy (0)
       });
-
-      this.modelCache.set(garment.id, modelGroup);
-    }
-
-    // Remove existing model from scene
-    if (this.currentModelGroup) {
-      this.scene.remove(this.currentModelGroup);
-    }
-
-    this.currentModelGroup = modelGroup;
-    this.activeGarmentId = garment.id;
-    this.scene.add(this.currentModelGroup);
-
-    // Apply luxury PBR fabric material with sheen and micro-weave normal map
-    this.garmentMeshes = [];
-    const fabricMaterial = FabricMaterialFactory.createFabricMaterial(
-      garment.material.color,
-      garment.fabric
-    );
-
-    this.currentModelGroup.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        mesh.material = fabricMaterial;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.renderOrder = 1; // Render after depth-only body proxy (0)
-        this.garmentMeshes.push(mesh);
+      const inst = new GarmentInstance(gltf.scene, garment, simData);
+      if (this.isDisposed) {
+        inst.dispose();
+        material.normalMap?.dispose();
+        material.dispose();
+        throw new Error('SCENE_DISPOSED');
       }
-    });
-
-    // Initialize XPBD cloth solver if simulation is enabled
-    if (garment.simulation.enabled && this.garmentMeshes.length > 0) {
-      this.xpbdSolver = new XPBDClothSolver(garment.simulation);
-      const primaryGeom = this.garmentMeshes[0].geometry;
-      const posAttr = primaryGeom.getAttribute('position');
-      const idxAttr = primaryGeom.getIndex();
-
-      if (posAttr && idxAttr) {
-        this.xpbdSolver.initializeMesh(
-          posAttr.array as Float32Array,
-          idxAttr.array as Uint16Array
-        );
-      }
-    } else {
-      this.xpbdSolver = null;
-    }
+      this.materials.set(garment.id, material);
+      this.instances.set(garment.id, inst);
+      return inst;
+    })();
+    this.loading.set(garment.id, p);
+    p.finally(() => this.loading.delete(garment.id)).catch(() => undefined);
+    return p;
   }
 
-  /**
-   * Deforms active garment to match personalized body measurements and radial ease.
-   */
-  adaptGarmentToBody(measurements: BodyMeasurements, easeOffsetM = 0.015): void {
-    if (!this.currentModelGroup || this.garmentMeshes.length === 0) return;
-
-    this.bodyProxy.updateSectionsFromMeasurements(
-      measurements.shoulderBreadthCm / 100.0,
-      measurements.chestCircumferenceCm / 100.0,
-      measurements.waistCircumferenceCm / 100.0,
-      measurements.hipCircumferenceCm / 100.0
-    );
-
-    for (const mesh of this.garmentMeshes) {
-      let correspondences = this.meshCorrespondences.get(mesh.uuid);
-      if (!correspondences) {
-        correspondences = this.correspondenceManager.generateCorrespondence(
-          mesh.geometry,
-          this.bodyProxy,
-          'shoulder_center'
-        );
-        this.meshCorrespondences.set(mesh.uuid, correspondences);
-      }
-
-      this.correspondenceManager.applyDeformation(
-        mesh.geometry,
-        correspondences,
-        easeOffsetM
-      );
-    }
+  /** Loads (or reuses) and activates a garment. */
+  async loadGarment(garment: GarmentMetadata): Promise<void> {
+    const inst = await this.loadInstance(garment);
+    if (this.isDisposed) return;
+    if (this.active === inst) return;
+    this.active?.detach();
+    this.active = inst;
+    inst.attach(this.bodyRoot);
+    inst.setDebug(this.debug, this.bodyProxy);
+    // Legs are inside skirts / dresses; arms are outside every garment's torso panel.
+    this.bodyProxy.setCollisionCapsules(garment.category === 'tops' ? [] : ['left_thigh', 'right_thigh']);
   }
 
-  /**
-   * Sets unified 6-DoF target poses for both garment and body proxy with joint rotations and limb colliders.
-   */
-  setTargetPoses(
-    garmentPose: RigidPose3D | null,
-    bodyPose: RigidPose3D | null,
-    jointRotations?: Record<MHRJointName, [number, number, number, number]>,
-    limbJoints?: Partial<Record<MHRJointName, [number, number, number]>>
-  ): void {
-    if (!garmentPose || !bodyPose) {
-      this.hasPoses = false;
-      if (this.currentModelGroup) this.currentModelGroup.visible = false;
-      this.bodyProxy.group.visible = false;
+  get activeGarment(): GarmentInstance | null {
+    return this.active;
+  }
+
+  /** Applies a fitting result (or null when tracking is lost). */
+  setFrameTarget(fit: DetailedFittingResult | null, nowMs = performance.now()): void {
+    if (!fit || !fit.pnpResult.valid) {
+      this.tracking = false;
       return;
     }
+    const lostFor = nowMs - this.lastTrackedAt;
+    this.tracking = true;
+    this.lastTrackedAt = nowMs;
+    this.targetPos.fromArray(fit.bodyPose.position);
+    this.targetQuat.fromArray(fit.bodyPose.quaternion);
+    this.targetScale.fromArray(fit.garmentScale);
+    this.armL = fit.armDirectionsBody.left ? new THREE.Vector3(...fit.armDirectionsBody.left) : null;
+    this.armR = fit.armDirectionsBody.right ? new THREE.Vector3(...fit.armDirectionsBody.right) : null;
+    this.chordL = fit.fullArmDirectionsBody.left ? new THREE.Vector3(...fit.fullArmDirectionsBody.left) : null;
+    this.chordR = fit.fullArmDirectionsBody.right ? new THREE.Vector3(...fit.fullArmDirectionsBody.right) : null;
 
-    if (this.currentModelGroup) this.currentModelGroup.visible = true;
-    this.bodyProxy.group.visible = true;
-    this.hasPoses = true;
+    this.bodyProxy.setShape(fit.bodyShape);
+    const limbs: Partial<Record<MHRJointName, THREE.Vector3>> = {};
+    for (const [k, v] of Object.entries(fit.limbJoints)) if (v) limbs[k as MHRJointName] = new THREE.Vector3(v[0], v[1], v[2]);
+    this.bodyProxy.updateLimbs(limbs);
 
-    this.targetGarmentPos.set(
-      garmentPose.position[0],
-      garmentPose.position[1],
-      garmentPose.position[2]
-    );
-    this.targetGarmentQuat.set(
-      garmentPose.quaternion[0],
-      garmentPose.quaternion[1],
-      garmentPose.quaternion[2],
-      garmentPose.quaternion[3]
-    );
-    this.targetGarmentScale.set(
-      garmentPose.scale[0],
-      garmentPose.scale[1],
-      garmentPose.scale[2]
-    );
-
-    this.targetBodyPos.set(
-      bodyPose.position[0],
-      bodyPose.position[1],
-      bodyPose.position[2]
-    );
-    this.targetBodyQuat.set(
-      bodyPose.quaternion[0],
-      bodyPose.quaternion[1],
-      bodyPose.quaternion[2],
-      bodyPose.quaternion[3]
-    );
-
-    if (jointRotations) {
-      this.latestJointRotations = jointRotations;
+    if (!this.hasTarget || lostFor > SNAP_AFTER_LOSS_MS) {
+      this.bodyRoot.position.copy(this.targetPos);
+      this.bodyRoot.quaternion.copy(this.targetQuat);
+      this.prevPos = null;
     }
-
-    if (limbJoints) {
-      this.latestLimbJoints = limbJoints;
-      const limbVecs: Partial<Record<MHRJointName, THREE.Vector3>> = {};
-      for (const [k, v] of Object.entries(limbJoints)) {
-        if (v) limbVecs[k as MHRJointName] = new THREE.Vector3(v[0], v[1], v[2]);
-      }
-      this.bodyProxy.updateLimbs(limbVecs);
-    }
+    this.hasTarget = true;
   }
 
-  /**
-   * Backward-compatible transform setter.
-   */
-  setTargetTransform(transform: Transform3D | null): void {
-    this.targetTransform = transform;
-    if (!transform && this.currentModelGroup) {
-      this.currentModelGroup.visible = false;
-      this.bodyProxy.group.visible = false;
-    } else if (transform && this.currentModelGroup) {
-      this.currentModelGroup.visible = true;
-      this.bodyProxy.group.visible = true;
-    }
+  /** Shape-only update (e.g. for tests or when only the body model changed). */
+  setBodyShape(shape: BodyShape): void {
+    this.bodyProxy.setShape(shape);
   }
 
-  /**
-   * Backward-compatible body root transform setter.
-   */
-  setBodyRootTransform(
-    position: [number, number, number],
-    quaternion: [number, number, number, number]
-  ): void {
-    this.bodyProxy.setRootTransform(position, quaternion);
+  setDebugLayers(layers: Partial<SceneDebugLayers>): void {
+    this.debug = { ...this.debug, ...layers };
+    this.bodyProxy.setDebugVisible(this.debug.bodyProxy);
+    this.active?.setDebug(this.debug, this.bodyProxy);
   }
 
-  /**
-   * Continuous render loop with XPBD cloth step, kinematic sleeve deformation, and smooth transform interpolation.
-   */
-  render(): void {
-    if (!this.renderer || this.isDisposed) return;
-
-    const now = performance.now();
-    const dt = Math.min((now - this.lastRenderTime) / 1000.0, 0.05);
-    this.lastRenderTime = now;
-
-    // 1. Primary: Unified 6-DoF SLERP & Vector LERP
-    if (this.hasPoses && this.currentModelGroup && this.currentModelGroup.visible) {
-      const alphaPos = 0.45;
-      const alphaRot = 0.45;
-      const alphaScale = 0.3;
-
-      this.currentGarmentPos.lerp(this.targetGarmentPos, alphaPos);
-      this.currentGarmentQuat.slerp(this.targetGarmentQuat, alphaRot);
-      this.currentGarmentScale.lerp(this.targetGarmentScale, alphaScale);
-
-      this.currentModelGroup.position.copy(this.currentGarmentPos);
-      this.currentModelGroup.quaternion.copy(this.currentGarmentQuat);
-      this.currentModelGroup.scale.copy(this.currentGarmentScale);
-
-      this.currentBodyPos.lerp(this.targetBodyPos, alphaPos);
-      this.currentBodyQuat.slerp(this.targetBodyQuat, alphaRot);
-
-      this.bodyProxy.setRootTransform(
-        [this.currentBodyPos.x, this.currentBodyPos.y, this.currentBodyPos.z],
-        [this.currentBodyQuat.x, this.currentBodyQuat.y, this.currentBodyQuat.z, this.currentBodyQuat.w]
-      );
-
-      // Rotate sleeves with shoulder kinematics
-      if (this.latestJointRotations) {
-        this.updateSleeveJoints(this.latestJointRotations);
-      }
-    } else if (this.targetTransform && this.currentModelGroup) {
-      // Legacy fallback
-      const posLerp = 0.35;
-      const rotLerp = 0.35;
-      const scaleLerp = 0.25;
-
-      this.currentTransform.position[0] += (this.targetTransform.position[0] - this.currentTransform.position[0]) * posLerp;
-      this.currentTransform.position[1] += (this.targetTransform.position[1] - this.currentTransform.position[1]) * posLerp;
-      this.currentTransform.position[2] += (this.targetTransform.position[2] - this.currentTransform.position[2]) * posLerp;
-
-      this.currentTransform.rotation[0] += (this.targetTransform.rotation[0] - this.currentTransform.rotation[0]) * rotLerp;
-      this.currentTransform.rotation[1] += (this.targetTransform.rotation[1] - this.currentTransform.rotation[1]) * rotLerp;
-      this.currentTransform.rotation[2] += (this.targetTransform.rotation[2] - this.currentTransform.rotation[2]) * rotLerp;
-
-      this.currentTransform.scale[0] += (this.targetTransform.scale[0] - this.currentTransform.scale[0]) * scaleLerp;
-      this.currentTransform.scale[1] += (this.targetTransform.scale[1] - this.currentTransform.scale[1]) * scaleLerp;
-      this.currentTransform.scale[2] += (this.targetTransform.scale[2] - this.currentTransform.scale[2]) * scaleLerp;
-
-      this.currentModelGroup.position.set(
-        this.currentTransform.position[0],
-        this.currentTransform.position[1],
-        this.currentTransform.position[2]
-      );
-
-      this.currentModelGroup.rotation.set(
-        this.currentTransform.rotation[0],
-        this.currentTransform.rotation[1],
-        this.currentTransform.rotation[2],
-        'ZYX'
-      );
-
-      this.currentModelGroup.scale.set(
-        this.currentTransform.scale[0],
-        this.currentTransform.scale[1],
-        this.currentTransform.scale[2]
-      );
-
-      this.bodyProxy.group.position.copy(this.currentModelGroup.position);
-      this.bodyProxy.group.quaternion.copy(this.currentModelGroup.quaternion);
-    }
-
-    // 2. Step XPBD Cloth Simulation with Body Collisions
-    if (this.xpbdSolver && this.garmentMeshes.length > 0) {
-      const rootPos: [number, number, number] = this.currentModelGroup
-        ? [this.currentModelGroup.position.x, this.currentModelGroup.position.y, this.currentModelGroup.position.z]
-        : [0, 0, -1.6];
-
-      this.xpbdSolver.step(dt, this.bodyProxy, rootPos);
-
-      const simPositions = this.xpbdSolver.getSimulatedPositions();
-      if (simPositions) {
-        const primaryGeom = this.garmentMeshes[0].geometry;
-        const posAttr = primaryGeom.getAttribute('position') as THREE.BufferAttribute;
-        if (posAttr && posAttr.array.length === simPositions.length) {
-          posAttr.array.set(simPositions);
-          posAttr.needsUpdate = true;
-          primaryGeom.computeVertexNormals();
-        }
-      }
-    }
-
-    // 3. Render WebGL2 scene
-    this.renderer.render(this.scene, this.camera);
-  }
-
-  /**
-   * Updates sleeve rotations dynamically from shoulder swing-twist rotations.
-   */
-  private updateSleeveJoints(
-    jointRotations: Record<MHRJointName, [number, number, number, number]>
-  ): void {
-    if (!this.currentModelGroup) return;
-
-    const leftShoulderQuat = jointRotations.left_shoulder;
-    const rightShoulderQuat = jointRotations.right_shoulder;
-
-    this.currentModelGroup.traverse((child) => {
-      if (child.name === 'left_sleeve' && leftShoulderQuat) {
-        const baseQ = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 0, 1),
-          -Math.PI / 4.2
-        );
-        const jointQ = new THREE.Quaternion(
-          leftShoulderQuat[0],
-          leftShoulderQuat[1],
-          leftShoulderQuat[2],
-          leftShoulderQuat[3]
-        );
-        child.quaternion.copy(jointQ.multiply(baseQ));
-      } else if (child.name === 'right_sleeve' && rightShoulderQuat) {
-        const baseQ = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 0, 1),
-          Math.PI / 4.2
-        );
-        const jointQ = new THREE.Quaternion(
-          rightShoulderQuat[0],
-          rightShoulderQuat[1],
-          rightShoulderQuat[2],
-          rightShoulderQuat[3]
-        );
-        child.quaternion.copy(jointQ.multiply(baseQ));
-      }
-    });
-  }
-
+  /** Backward-compatible toggle used by the skeleton button. */
   setDebugSkeletonVisible(visible: boolean): void {
-    this.bodyProxy.setDebugVisible(visible);
+    this.setDebugLayers({ bodyProxy: visible });
   }
 
-  /**
-   * Completely disposes Three.js WebGL resources.
-   */
+  /** Resets frame timing (call when the tab becomes visible again). */
+  resetTiming(): void {
+    this.lastRenderTime = null;
+    this.prevPos = null;
+  }
+
+  render(nowMs = performance.now()): void {
+    if (!this.renderer || this.isDisposed || this.contextLost) return;
+    const t0 = performance.now();
+    const dt = this.lastRenderTime === null ? 1 / 60 : Math.min(0.1, Math.max(0, (nowMs - this.lastRenderTime) / 1000));
+    this.lastRenderTime = nowMs;
+
+    const visible = this.hasTarget && this.tracking && this.active !== null;
+    this.bodyRoot.visible = visible;
+
+    if (visible) {
+      const a = 1 - Math.exp(-dt / POSE_TAU_S);
+      this.bodyRoot.position.lerp(this.targetPos, a);
+      this.bodyRoot.quaternion.slerp(this.targetQuat, a);
+      this.bodyRoot.updateMatrixWorld(true);
+
+      // Body-root acceleration (camera space), low-passed and clamped.
+      if (this.prevPos && dt > 1e-4) {
+        const v = this.bodyRoot.position.clone().sub(this.prevPos).divideScalar(dt);
+        const rawA = v.clone().sub(this.prevVel).divideScalar(dt);
+        if (rawA.length() > ACCEL_CLAMP) rawA.setLength(ACCEL_CLAMP);
+        this.accel.lerp(rawA, 1 - Math.exp(-dt / ACCEL_TAU_S));
+        this.prevVel.copy(v);
+      } else {
+        this.prevVel.set(0, 0, 0);
+        this.accel.set(0, 0, 0);
+      }
+      this.prevPos = (this.prevPos ?? new THREE.Vector3()).copy(this.bodyRoot.position);
+    }
+
+    const g0 = performance.now();
+    if (this.active && this.hasTarget) {
+      this.active.update({
+        bodyProxy: this.bodyProxy,
+        bodyRoot: this.bodyRoot,
+        dt,
+        nowMs,
+        armDirsBody: { left: this.armL, right: this.armR },
+        fullArmDirsBody: { left: this.chordL, right: this.chordR },
+        targetScale: this.targetScale,
+        tracking: visible,
+        frameAccelWorld: this.accel,
+      });
+    }
+    this.lastGarmentMs = performance.now() - g0;
+
+    this.renderer.render(this.scene, this.camera);
+    this.lastRenderMs = performance.now() - t0;
+  }
+
+  getDiagnostics(): SceneDiagnostics {
+    const info = this.renderer?.info.render;
+    return {
+      garment: this.active ? this.active.diagnostics(this.bodyProxy, this.bodyRoot, this.tracking) : null,
+      renderMs: this.lastRenderMs,
+      garmentUpdateMs: this.lastGarmentMs,
+      contextLost: this.contextLost,
+      drawCalls: info?.calls ?? 0,
+      triangles: info?.triangles ?? 0,
+    };
+  }
+
   dispose(): void {
     if (this.isDisposed) return;
     this.isDisposed = true;
-
-    this.bodyProxy.dispose();
-
-    this.modelCache.forEach((group) => {
-      group.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh;
-          mesh.geometry.dispose();
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach((m) => m.dispose());
-          } else if (mesh.material) {
-            mesh.material.dispose();
-          }
-        }
-      });
+    this.instances.forEach((inst) => inst.dispose());
+    this.instances.clear();
+    this.materials.forEach((m) => {
+      m.normalMap?.dispose();
+      m.dispose();
     });
-    this.modelCache.clear();
-
+    this.materials.clear();
+    this.bodyProxy.dispose();
     if (this.renderer) {
+      this.renderer.domElement.removeEventListener('webglcontextlost', this.onContextLost);
+      this.renderer.domElement.removeEventListener('webglcontextrestored', this.onContextRestored);
       this.renderer.dispose();
-      if (this.renderer.domElement && this.renderer.domElement.parentNode) {
-        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
-      }
+      this.renderer.domElement.parentNode?.removeChild(this.renderer.domElement);
       this.renderer = null;
     }
   }
