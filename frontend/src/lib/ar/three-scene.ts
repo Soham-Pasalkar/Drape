@@ -116,6 +116,7 @@ export class ThreeSceneManager {
 
   // Stage-1 diagnostics
   private renderFrame = 0;
+  private pendingSnap = false;
   private frameLog: FrameLog = {
     renderFrame: 0, dtMs: 0, lerpA: 0, snapped: false, targetPos: [0, 0, 0], bodyRootPos: [0, 0, 0],
     garmentParentedToBodyRoot: false, bodyRootVisible: false,
@@ -300,12 +301,8 @@ export class ThreeSceneManager {
     for (const [k, v] of Object.entries(fit.limbJoints)) if (v) limbs[k as MHRJointName] = new THREE.Vector3(v[0], v[1], v[2]);
     this.bodyProxy.updateLimbs(limbs);
 
-    if (!this.hasTarget || lostFor > SNAP_AFTER_LOSS_MS) {
-      this.bodyRoot.position.copy(this.targetPos);
-      this.bodyRoot.quaternion.copy(this.targetQuat);
-      this.prevPos = null;
-      this.frameLog.snapped = true;
-    }
+    // Only REQUEST a snap; the transform itself is written exclusively by setPose().
+    if (!this.hasTarget || lostFor > SNAP_AFTER_LOSS_MS) this.pendingSnap = true;
     this.hasTarget = true;
   }
 
@@ -383,6 +380,30 @@ export class ThreeSceneManager {
     });
   }
 
+  /**
+   * THE ONLY writer of the body-root (and therefore garment + occluder) transform.
+   * Snaps on first acquisition / after a tracking gap, otherwise eases toward the target with
+   * a = 1 − exp(−dt/τ): position lerp + quaternion slerp (no Euler interpolation).
+   * Returns the factor applied (1 = snap).
+   */
+  private setPose(dt: number): number {
+    let a: number;
+    if (this.pendingSnap) {
+      a = 1;
+      this.bodyRoot.position.copy(this.targetPos);
+      this.bodyRoot.quaternion.copy(this.targetQuat);
+      this.prevPos = null;
+      this.pendingSnap = false;
+      this.frameLog.snapped = true;
+    } else {
+      a = 1 - Math.exp(-dt / POSE_TAU_S);
+      this.bodyRoot.position.lerp(this.targetPos, a);
+      this.bodyRoot.quaternion.slerp(this.targetQuat, a);
+    }
+    this.bodyRoot.updateMatrixWorld(true);
+    return a;
+  }
+
   /** Resets frame timing (call when the tab becomes visible again). */
   resetTiming(): void {
     this.lastRenderTime = null;
@@ -401,11 +422,7 @@ export class ThreeSceneManager {
     let lerpA = 0;
 
     if (visible) {
-      const a = 1 - Math.exp(-dt / POSE_TAU_S);
-      lerpA = a;
-      this.bodyRoot.position.lerp(this.targetPos, a);
-      this.bodyRoot.quaternion.slerp(this.targetQuat, a);
-      this.bodyRoot.updateMatrixWorld(true);
+      lerpA = this.setPose(dt);
 
       // Body-root acceleration (camera space), low-passed and clamped.
       if (this.prevPos && dt > 1e-4) {
