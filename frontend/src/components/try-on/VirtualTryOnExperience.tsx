@@ -418,7 +418,6 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
             }
             sceneNow.setProjection(fittingEngine.calibrationManager.getIntrinsics(), displayRef.current ?? display);
           }
-          sceneNow.updateEnvironmentalLighting(video, now);
 
           // 3. Fitting runs once per NEW pose frame.
           const pf = poseFrameRef.current;

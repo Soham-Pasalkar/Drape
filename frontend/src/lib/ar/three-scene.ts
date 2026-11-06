@@ -20,7 +20,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CameraIntrinsics, GarmentMetadata, MHRJointName } from './types';
 import { MHRBodyProxy, BodyShape } from './mhr-body-proxy';
 import { FabricMaterialFactory } from './fabric-materials';
-import { EnvironmentalLightingEstimator } from './environmental-lighting';
 import { GarmentInstance, GarmentDebugFlags, GarmentDiagnostics, SimulationData } from './garment-instance';
 import { buildProjectionMatrix, VideoDisplayTransform } from './coordinates';
 import { DetailedFittingResult } from './fitting-engine';
@@ -71,8 +70,6 @@ const POSE_TAU_S = 0.05;
 /** Acceleration low-pass (s) and clamp (m/s²) for cloth inertial coupling. */
 const ACCEL_TAU_S = 0.1;
 const ACCEL_CLAMP = 10;
-/** Environmental lighting is a GPU→CPU readback; 4 Hz is plenty for slow lighting changes. */
-const LIGHTING_INTERVAL_MS = 250;
 /** After this long without tracking, the pose snaps instead of easing on re-acquisition. */
 const SNAP_AFTER_LOSS_MS = 500;
 
@@ -91,10 +88,6 @@ export class ThreeSceneManager {
   private loading = new Map<string, Promise<GarmentInstance>>();
   private active: GarmentInstance | null = null;
 
-  private lightingEstimator = new EnvironmentalLightingEstimator();
-  private ambientLight!: THREE.AmbientLight;
-  private keyLight!: THREE.DirectionalLight;
-  private lastLightingAt = 0;
 
   // Targets from the latest fit.
   private hasTarget = false;
@@ -169,8 +162,10 @@ export class ThreeSceneManager {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(width, height);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    // Stages 1–3: linear workflow, sRGB output, NO tone mapping, fixed neutral lights.
+    // Video-driven lighting returns only in Stage 4.7.
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.domElement.style.width = '100%';
     this.renderer.domElement.style.height = '100%';
     this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost, false);
@@ -188,18 +183,15 @@ export class ThreeSceneManager {
     this.bodyRoot.add(this.bodyProxy.group);
   }
 
+  /** Fixed neutral white lights (no per-frame overrides). */
   private setupLighting(): void {
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.3);
-    this.scene.add(this.ambientLight);
-    this.keyLight = new THREE.DirectionalLight(0xfff8ee, 2.2);
-    this.keyLight.position.set(1.5, 3.0, 2.0);
-    this.scene.add(this.keyLight);
-    const fill = new THREE.DirectionalLight(0xe8f0ff, 0.9);
-    fill.position.set(-2.0, -1.0, 1.5);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const key = new THREE.DirectionalLight(0xffffff, 1.0);
+    key.position.set(0.5, 1.0, 2.0); // camera side, slightly above
+    this.scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+    fill.position.set(-1.0, 0.0, 1.0);
     this.scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xffffff, 0.7);
-    rim.position.set(0, 2.5, -2.0);
-    this.scene.add(rim);
   }
 
   /**
@@ -219,15 +211,6 @@ export class ThreeSceneManager {
   resize(width: number, height: number): void {
     if (!this.renderer || this.isDisposed || width <= 0 || height <= 0) return;
     this.renderer.setSize(width, height, false);
-  }
-
-  updateEnvironmentalLighting(video: HTMLVideoElement, nowMs = performance.now()): void {
-    if (nowMs - this.lastLightingAt < LIGHTING_INTERVAL_MS) return;
-    this.lastLightingAt = nowMs;
-    const est = this.lightingEstimator.estimateFromVideo(video);
-    this.ambientLight.intensity = est.ambientIntensity;
-    this.ambientLight.color.copy(est.ambientColor);
-    this.keyLight.intensity = est.keyIntensity;
   }
 
   private async fetchSimulationData(garment: GarmentMetadata): Promise<SimulationData | null> {
@@ -468,8 +451,8 @@ export class ThreeSceneManager {
     };
     this.frameLog.snapped = false;
     if (this.probeEnabled && this.active && visible) {
-      // Chest point ≈ 15 cm below the anchor, on the garment front (+Z).
-      const chest = this.active.anchor.anchor.clone().add(new THREE.Vector3(0, -0.15, 0.1)).applyMatrix4(this.active.anchorGroup.matrixWorld);
+      // Chest point 25 cm below / 10 cm to +X of the anchor on the front (+Z), clear of the F gizmo.
+      const chest = this.active.anchor.anchor.clone().add(new THREE.Vector3(0.1, -0.25, 0.1)).applyMatrix4(this.active.anchorGroup.matrixWorld);
       const ndc = chest.applyMatrix4(this.camera.matrixWorldInverse).applyMatrix4(this.camera.projectionMatrix);
       this.probeRgb = readPixelAtNdc(this.renderer, ndc);
     }
