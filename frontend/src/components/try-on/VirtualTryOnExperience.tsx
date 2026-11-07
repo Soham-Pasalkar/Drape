@@ -58,6 +58,7 @@ import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
 import { FrameStep } from "@/lib/ar/pipeline/frame-step";
 import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC } from "@/lib/ar/coordinates";
 import { computeRegistration } from "@/lib/ar/debug/registration";
+import { buildFrameDiag } from "@/lib/ar/debug/frame-diag";
 import type { DebugMaterialMode } from "@/lib/ar/debug/stage1-probe";
 import * as THREE from "three";
 import TrackingStatusBanner from "./TrackingStatusBanner";
@@ -334,6 +335,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
             projected: scene.registrationPixels(d),
           })
         : null,
+      frameDiag: buildFrameDiag(fit, scene, d, performance.now()),
       stage1: (() => {
         const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(...fit.bodyPose.quaternion), "YXZ");
         const deg = (r: number) => (r * 180) / Math.PI;
@@ -369,7 +371,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     fitting: FittingEngine,
     video: HTMLVideoElement,
     vW: number,
-    vH: number
+    vH: number,
+    nowMs: number
   ) => {
     const dsp = displayRef.current;
     const K = fitting.calibrationManager.getIntrinsics();
@@ -426,6 +429,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
           registration: reg,
           distance: fit ? { z: fit.distance.distanceM, mode: fit.distance.mode } : null,
           timings: { inferMs: poseTrackerRef.current?.stats.inferenceMs ?? 0, fitMs: fit?.fitDurationMs ?? 0, renderMs: sceneNow.renderDurationMs },
+          diag: buildFrameDiag(fit, sceneNow, dsp, nowMs),
         },
       },
       pf.t
@@ -644,7 +648,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
           // 4b. Session recording (same tick as the render).
           const rec = recorderRef.current;
           if (rec.active) {
-            if (consumed) recordConsumedFrame(pf, latestFitRef.current, sceneNow, fittingEngine, video, vW, vH);
+            if (consumed) recordConsumedFrame(pf, latestFitRef.current, sceneNow, fittingEngine, video, vW, vH, now);
             rec.noteRender(now);
             const dsp = displayRef.current;
             if (includeSnapshotsRef.current && dsp && rec.wantsImage(now) && sceneNow.glCanvas) {

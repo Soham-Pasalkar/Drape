@@ -52,6 +52,35 @@ export interface SessionFrameOut {
   } | null;
   distance: { z: number; mode: string } | null;
   timings: { inferMs: number; fitMs: number; renderMs: number };
+  /** Diagnostics (optional; added for the user's 2026-11-07 hypotheses). */
+  diag?: SessionFrameDiag;
+}
+
+export interface SessionFrameDiag {
+  distance: {
+    mode: string;
+    z: number;
+    referenceSpanPx: number | null;
+    referenceDistanceM: number | null;
+    samplesCollected: number;
+    samplesRequired: number;
+    reason: string | null;
+    lastWindowSpread: number | null;
+    shoulderVisibility: number;
+    yawDeg: number;
+  } | null;
+  /** What this consumed frame did to the scene target. */
+  setFrameTarget: 'fit' | 'invalid' | 'null';
+  pnp: { valid: boolean; reason: string | null } | null;
+  lastValidPoseAgeMs: number | null;
+  snapPending: boolean;
+  lerpA: number;
+  bodyRootVisible: boolean;
+  garment: {
+    wrapperScale: Vec3T;
+    anchorWorld: Vec3T;
+    meshes: { name: string; role: string; sizeM: Vec3T; centreRelAnchorM: Vec3T; screen: { x: number; y: number; w: number; h: number } }[];
+  } | null;
 }
 
 export interface SessionFrame {

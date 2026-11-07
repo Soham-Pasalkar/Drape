@@ -118,6 +118,7 @@ export class ThreeSceneManager {
   // Stage-1 diagnostics
   private renderFrame = 0;
   private poseSmoother = new PoseSmoother(POSE_TAU_S);
+  private lastSetFrameTarget: 'fit' | 'invalid' | 'null' | 'none' = 'none';
   private frameLog: FrameLog = {
     renderFrame: 0, dtMs: 0, lerpA: 0, snapped: false, targetPos: [0, 0, 0], bodyRootPos: [0, 0, 0],
     garmentParentedToBodyRoot: false, bodyRootVisible: false,
@@ -287,6 +288,7 @@ export class ThreeSceneManager {
 
   /** Applies a fitting result (or null when tracking is lost). */
   setFrameTarget(fit: DetailedFittingResult | null, nowMs = performance.now()): void {
+    this.lastSetFrameTarget = !fit ? 'null' : fit.pnpResult.valid ? 'fit' : 'invalid';
     if (!fit || !fit.pnpResult.valid) {
       this.tracking = false;
       return;
@@ -541,6 +543,56 @@ export class ThreeSceneManager {
       this.probeRgb = readPixelAtNdc(this.renderer, ndc);
     }
     this.lastRenderMs = performance.now() - t0;
+  }
+
+  /** Pose-target bookkeeping (diagnosis of "garment does not follow"). */
+  trackingState(nowMs: number): {
+    hasTarget: boolean;
+    tracking: boolean;
+    lastSetFrameTarget: 'fit' | 'invalid' | 'null' | 'none';
+    lastValidPoseAgeMs: number | null;
+    snapPending: boolean;
+    lerpA: number;
+    bodyRootVisible: boolean;
+  } {
+    return {
+      hasTarget: this.hasTarget,
+      tracking: this.tracking,
+      lastSetFrameTarget: this.lastSetFrameTarget,
+      lastValidPoseAgeMs: this.hasTarget ? nowMs - this.lastTrackedAt : null,
+      snapPending: this.poseSmoother.snapPending,
+      lerpA: this.frameLog.lerpA,
+      bodyRootVisible: this.bodyRoot.visible,
+    };
+  }
+
+  /**
+   * Garment geometry as rendered: wrapper scale, and per mesh the world-space (camera-space) bbox size and centre
+   * relative to the garment anchor, plus the projected bbox in container pixels (pre-flip).
+   */
+  garmentGeometry(display: VideoDisplayTransform): {
+    wrapperScale: [number, number, number];
+    anchorWorld: [number, number, number];
+    meshes: { name: string; role: string; sizeM: [number, number, number]; centreRelAnchorM: [number, number, number]; screen: { x: number; y: number; w: number; h: number } }[];
+  } | null {
+    const inst = this.active;
+    if (!inst) return null;
+    inst.wrapper.updateWorldMatrix(true, true);
+    const anchor = inst.anchorGroup.localToWorld(inst.anchor.anchor.clone());
+    const t3 = (v: THREE.Vector3): [number, number, number] => [v.x, v.y, v.z];
+    const meshes = inst.meshes.map((m) => {
+      const box = new THREE.Box3().setFromObject(m.mesh, true);
+      const size = box.getSize(new THREE.Vector3());
+      const c = box.getCenter(new THREE.Vector3()).sub(anchor);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        const p = new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).project(this.camera);
+        const d = ndcToDisplay({ x: p.x, y: p.y }, display);
+        minX = Math.min(minX, d.x); maxX = Math.max(maxX, d.x); minY = Math.min(minY, d.y); maxY = Math.max(maxY, d.y);
+      }
+      return { name: m.mesh.name || '(unnamed)', role: m.role, sizeM: t3(size), centreRelAnchorM: t3(c), screen: { x: (minX + maxX) / 2, y: (minY + maxY) / 2, w: maxX - minX, h: maxY - minY } };
+    });
+    return { wrapperScale: t3(inst.wrapper.scale), anchorWorld: t3(anchor), meshes };
   }
 
   /** Real rendering geometry for session recording (G2 amendment 1). */

@@ -25,6 +25,7 @@ import { VideoDisplayTransform, imageToDisplay } from "@/lib/ar/coordinates";
 import type { GarmentDiagnostics } from "@/lib/ar/garment-instance";
 import type { DebugMaterialMode, OrientationProbe } from "@/lib/ar/debug/stage1-probe";
 import type { RegistrationReadout } from "@/lib/ar/debug/registration";
+import type { SessionFrameDiag } from "@/lib/ar/session/schema";
 export type { RegistrationReadout } from "@/lib/ar/debug/registration";
 
 export interface DiagnosticLayers {
@@ -156,6 +157,7 @@ export interface DiagnosticMetrics {
   ease: GarmentEase | null;
   stage1: Stage1Readout;
   registration: RegistrationReadout | null;
+  frameDiag: SessionFrameDiag;
 }
 
 const BONES: [number, number][] = [
@@ -383,6 +385,30 @@ export default function DeveloperDiagnosticOverlay({
         <div className="text-warm-ivory/50 pt-2">Waiting for the first tracked frame…</div>
       ) : (
         <>
+          <Group title="Tracking state">
+            <Row k="setFrameTarget" v={m.frameDiag.setFrameTarget} warn={m.frameDiag.setFrameTarget !== "fit"} />
+            <Row k="PnP" v={m.frameDiag.pnp ? (m.frameDiag.pnp.valid ? "valid" : `invalid: ${m.frameDiag.pnp.reason}`) : "—"} />
+            <Row k="Valid pose age" v={m.frameDiag.lastValidPoseAgeMs === null ? "—" : `${f(m.frameDiag.lastValidPoseAgeMs, 0)} ms`} warn={(m.frameDiag.lastValidPoseAgeMs ?? 0) > 200} />
+            <Row k="snap / a / vis" v={`${m.frameDiag.snapPending ? "pending" : "no"} / ${f(m.frameDiag.lerpA, 3)} / ${m.frameDiag.bodyRootVisible ? "yes" : "no"}`} />
+            {m.frameDiag.distance && (
+              <>
+                <Row k="Dist mode / Z" v={`${m.frameDiag.distance.mode} / ${f(m.frameDiag.distance.z, 3)} m`} />
+                <Row k="Ref S0 / Z0" v={`${f(m.frameDiag.distance.referenceSpanPx, 1)} px / ${f(m.frameDiag.distance.referenceDistanceM, 3)} m`} />
+                <Row k="Window" v={`${m.frameDiag.distance.samplesCollected}/${m.frameDiag.distance.samplesRequired} · spread ${m.frameDiag.distance.lastWindowSpread === null ? "—" : f(m.frameDiag.distance.lastWindowSpread * 100, 1) + "%"}`} />
+                <Row k="Why" v={m.frameDiag.distance.reason ?? "live (relative)"} warn={m.frameDiag.distance.reason !== null} />
+                <Row k="Sh. vis / yaw" v={`${f(m.frameDiag.distance.shoulderVisibility, 2)} / ${f(m.frameDiag.distance.yawDeg, 0)}°`} />
+              </>
+            )}
+            {m.frameDiag.garment && (
+              <>
+                <Row k="Wrapper scale" v={v3(m.frameDiag.garment.wrapperScale, 3)} />
+                {m.frameDiag.garment.meshes.map((g) => (
+                  <Row key={g.name} k={g.name} v={`size ${v3(g.sizeM, 2)} · Δanchor ${v3(g.centreRelAnchorM, 2)} · ${f(g.screen.w, 0)} px wide`} />
+                ))}
+              </>
+            )}
+          </Group>
+
           {m.registration && (
             <Group title="Registration (screen px)">
               {(["left_shoulder", "right_shoulder", "left_hip", "right_hip"] as const).map((k) => {

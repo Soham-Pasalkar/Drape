@@ -78,6 +78,14 @@ export interface DistanceEstimate {
   yawRad: number;
   samplesCollected: number;
   samplesRequired: number;
+  /**
+   * Diagnostic: why the estimate is not (yet) a live relative measurement this frame, or null when it is.
+   * e.g. "visibility 0.58 < 0.65 (Z held)", "yaw 27° > 20° (sample not collected)",
+   * "window unstable: spread 4.1% > 3% (older half dropped)", "collecting 12/20", "outlier hold 2/5".
+   */
+  reason: string | null;
+  /** Relative MAD of the last full reference window (null until one was evaluated). */
+  lastWindowSpread: number | null;
 }
 
 function median(values: number[]): number {
@@ -104,6 +112,8 @@ export class ShoulderDistanceEstimator {
   private pendingOutlierFrames = 0;
   private lastTimestampMs: number | null = null;
   private last: DistanceEstimate | null = null;
+  private lastSpread: number | null = null;
+  private reason: string | null = null;
 
   get isInitialized(): boolean {
     return this.referenceSpan !== null;
@@ -117,6 +127,8 @@ export class ShoulderDistanceEstimator {
     this.breadthSource = 'population_prior';
     this.knownReferenceDistance = null;
     this.smoothedZ = null;
+    this.lastSpread = null;
+    this.reason = null;
     this.lastAcceptedSpan = null;
     this.pendingOutlierFrames = 0;
     this.lastTimestampMs = null;
@@ -156,6 +168,11 @@ export class ShoulderDistanceEstimator {
       cosYaw >= cfg.MIN_COS_YAW;
 
     if (!measurable) {
+      this.reason = !(Number.isFinite(obs.shoulderSpanPx) && obs.shoulderSpanPx > 1)
+        ? 'no shoulder span (Z held)'
+        : obs.visibility < cfg.MIN_VISIBILITY
+        ? `visibility ${obs.visibility.toFixed(2)} < ${cfg.MIN_VISIBILITY} (Z held)`
+        : `|yaw| ${((Math.abs(obs.yawRad) * 180) / Math.PI).toFixed(0)}° > 60° (Z held)`;
       return this.hold(obs, fx);
     }
 
@@ -166,12 +183,16 @@ export class ShoulderDistanceEstimator {
       if (Math.abs(obs.yawRad) <= cfg.MAX_REFERENCE_YAW_RAD) {
         this.samples.push({ span: S, breadth: obs.worldShoulderBreadthM });
         if (this.samples.length > cfg.REFERENCE_WINDOW) this.samples.shift();
+        this.reason = `collecting ${Math.min(this.samples.length, cfg.REFERENCE_WINDOW)}/${cfg.REFERENCE_WINDOW}`;
+      } else {
+        this.reason = `|yaw| ${((Math.abs(obs.yawRad) * 180) / Math.PI).toFixed(0)}° > ${((cfg.MAX_REFERENCE_YAW_RAD * 180) / Math.PI).toFixed(0)}° (sample not collected)`;
       }
 
       if (this.samples.length >= cfg.REFERENCE_WINDOW) {
         const spans = this.samples.map((s) => s.span);
         const med = median(spans);
         const spread = median(spans.map((v) => Math.abs(v - med))) / med;
+        this.lastSpread = spread;
         if (spread <= cfg.MAX_REFERENCE_SPREAD) {
           this.referenceSpan = med;
           const breadths = this.samples.map((s) => s.breadth).filter(plausibleBreadth);
@@ -188,6 +209,7 @@ export class ShoulderDistanceEstimator {
         } else {
           // Unstable window (subject moving): discard the older half and keep collecting.
           this.samples.splice(0, this.samples.length >> 1);
+          this.reason = `window unstable: spread ${(spread * 100).toFixed(1)}% > ${(cfg.MAX_REFERENCE_SPREAD * 100).toFixed(0)}% (older half dropped)`;
         }
       }
 
@@ -219,12 +241,14 @@ export class ShoulderDistanceEstimator {
       if (jump > cfg.OUTLIER_JUMP) {
         this.pendingOutlierFrames++;
         if (this.pendingOutlierFrames < cfg.OUTLIER_PERSIST_FRAMES) {
+          this.reason = `outlier hold ${this.pendingOutlierFrames}/${cfg.OUTLIER_PERSIST_FRAMES} (span jump ${(jump * 100).toFixed(0)}%)`;
           return this.hold(obs, fx);
         }
       }
     }
     this.pendingOutlierFrames = 0;
     this.lastAcceptedSpan = S;
+    this.reason = null;
 
     // ---- 3. Relative tracking Z(t) = Z0 · S0 / S(t) ----------------------------------------
     const Z0 = this.referenceDistance(fx)!;
@@ -283,8 +307,10 @@ export class ShoulderDistanceEstimator {
     return Math.min(this.cfg.MAX_DISTANCE_M, Math.max(this.cfg.MIN_DISTANCE_M, z));
   }
 
-  private emit(e: DistanceEstimate): DistanceEstimate {
-    this.last = e;
-    return e;
+  private emit(e: Omit<DistanceEstimate, 'reason' | 'lastWindowSpread'>): DistanceEstimate {
+    const full: DistanceEstimate = { ...e, reason: this.reason, lastWindowSpread: this.lastSpread };
+    this.last = full;
+    return full;
   }
+
 }
