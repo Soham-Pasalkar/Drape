@@ -140,6 +140,14 @@ export interface DiagnosticMetrics {
     samplesRequired: number;
   };
   garment: GarmentDiagnostics | null;
+  vision: {
+    callbackCount: number;
+    inferenceCount: number;
+    detectionCount: number;
+    emptyCount: number;
+    lastMediaTime: number | null;
+    msSinceLastInference: number;
+  };
   performance: {
     renderFps: number;
     inferenceFps: number;
@@ -515,6 +523,15 @@ export default function DeveloperDiagnosticOverlay({
               <Row k="Meshes" v={m.garment.meshes.map((x) => `${x.name}:${x.role}`).join(" ")} />
             </Group>
           )}
+
+          <Group title="Vision Telemetry">
+            <Row k="Callbacks" v={`${m.vision.callbackCount} frames`} />
+            <Row k="Inferences" v={`${m.vision.inferenceCount} calls`} />
+            <Row k="Detections" v={`${m.vision.detectionCount} poses`} />
+            <Row k="Empty / Lost" v={`${m.vision.emptyCount} frames`} />
+            <Row k="Media time" v={m.vision.lastMediaTime !== null ? `${f(m.vision.lastMediaTime, 3)} s` : "— (live stream / RAF)"} />
+            <Row k="Last infer age" v={`${f(m.vision.msSinceLastInference, 0)} ms`} warn={m.vision.msSinceLastInference > 500} />
+          </Group>
 
           <Group title="Performance">
             <Row k="Render" v={`${f(m.performance.renderFps, 0)} fps · ${f(m.performance.renderMs, 2)} ms`} warn={m.performance.renderFps < 25} />

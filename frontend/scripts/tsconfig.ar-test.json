@@ -19,7 +19,5 @@
     "../src/lib/ar/pipeline/*.ts",
     "../src/lib/ar/session/*.ts"
   ],
-  "exclude": [
-    "../src/lib/ar/pose-tracker.ts"
-  ]
+  "exclude": []
 }

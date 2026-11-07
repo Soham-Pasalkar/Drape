@@ -26,12 +26,24 @@ export interface PoseTrackerCallbacks {
 }
 
 export interface PoseTrackerStats {
+  /** Video frame callbacks fired (RVFC / RAF). */
+  callbackCount: number;
+  /** Actual detectForVideo calls executed. */
+  inferenceCount: number;
+  /** Frames where a body pose was successfully detected. */
+  detectionCount: number;
+  /** Frames where no pose was detected (or landmarks < 25 / filtered out). */
+  emptyCount: number;
+  /** Monotonic count of processed video frames (backward-compatible alias for inferenceCount). */
+  frameCount: number;
   /** Pose inferences per second (EMA). */
   inferenceFps: number;
   /** Duration of the last detectForVideo call (ms). */
   inferenceMs: number;
-  /** Monotonic count of processed video frames. */
-  frameCount: number;
+  /** Last observed mediaTime (seconds), or null if unavailable / not provided. */
+  lastMediaTime: number | null;
+  /** Timestamp (performance.now()) of the last successful inference. */
+  lastInferenceAt: number;
   delegate: 'GPU' | 'CPU' | 'none';
 }
 
@@ -68,9 +80,34 @@ export class PoseTracker {
   private lastTimestamp = -1;
   private currentStatus: TrackingStatus = 'idle';
   private trackedVideo: VideoWithRVFC | null = null;
-  private lastMediaTime = -1;
-  private lastInferenceAt = 0;
-  public stats: PoseTrackerStats = { inferenceFps: 0, inferenceMs: 0, frameCount: 0, delegate: 'none' };
+  private lastInferenceTime = 0;
+  public stats: PoseTrackerStats = {
+    callbackCount: 0,
+    inferenceCount: 0,
+    detectionCount: 0,
+    emptyCount: 0,
+    frameCount: 0,
+    inferenceFps: 0,
+    inferenceMs: 0,
+    lastMediaTime: null,
+    lastInferenceAt: 0,
+    delegate: 'none',
+  };
+
+  private resetStats(): void {
+    this.stats = {
+      callbackCount: 0,
+      inferenceCount: 0,
+      detectionCount: 0,
+      emptyCount: 0,
+      frameCount: 0,
+      inferenceFps: 0,
+      inferenceMs: 0,
+      lastMediaTime: null,
+      lastInferenceAt: 0,
+      delegate: this.stats.delegate,
+    };
+  }
 
   /** The smoother is injected so the live app and replay share one instance (pipeline/frame-step.ts). */
   constructor(smoother: LandmarkSmoother = new LandmarkSmoother()) {
@@ -143,18 +180,19 @@ export class PoseTracker {
     this.stopTracking();
     this.isTracking = true;
     this.lastTimestamp = -1;
+    this.lastInferenceTime = 0;
+    this.resetStats();
     this.smoother.reset();
 
     this.trackedVideo = video as VideoWithRVFC;
 
     const processFrame = (mediaTime?: number) => {
       if (!this.isTracking || !this.landmarker) return;
-      // requestVideoFrameCallback can fire for a re-presented frame; skip duplicates.
-      if (mediaTime !== undefined && mediaTime === this.lastMediaTime) {
-        this.scheduleNextFrame(video, processFrame);
-        return;
+
+      this.stats.callbackCount++;
+      if (mediaTime !== undefined && Number.isFinite(mediaTime)) {
+        this.stats.lastMediaTime = mediaTime;
       }
-      if (mediaTime !== undefined) this.lastMediaTime = mediaTime;
 
       try {
         if (
@@ -167,16 +205,19 @@ export class PoseTracker {
           const now = performance.now();
           if (now > this.lastTimestamp) {
             this.lastTimestamp = now;
+            this.stats.inferenceCount++;
+            this.stats.frameCount++;
 
             const result = this.landmarker.detectForVideo(video, now);
             const done = performance.now();
             this.stats.inferenceMs = done - now;
-            this.stats.frameCount++;
-            if (this.lastInferenceAt > 0) {
-              const inst = 1000 / Math.max(1, done - this.lastInferenceAt);
-              this.stats.inferenceFps = this.stats.inferenceFps === 0 ? inst : this.stats.inferenceFps * 0.9 + inst * 0.1;
+            this.stats.lastInferenceAt = done;
+            if (this.lastInferenceTime > 0) {
+              const inst = 1000 / Math.max(1, done - this.lastInferenceTime);
+              this.stats.inferenceFps =
+                this.stats.inferenceFps === 0 ? inst : this.stats.inferenceFps * 0.9 + inst * 0.1;
             }
-            this.lastInferenceAt = done;
+            this.lastInferenceTime = done;
 
             if (result.landmarks && result.landmarks.length > 0 && result.landmarks[0].length >= 25) {
               const rawLandmarks: LandmarkPoint[] = result.landmarks[0].map((lm) => ({
@@ -200,18 +241,29 @@ export class PoseTracker {
 
               callbacks.onBeforeSmooth?.(now);
               const smoothed = this.smoother.process(rawLandmarks, now, worldLandmarks);
-              const meta: PoseFrameMeta = { world: worldLandmarks, timestampMs: now, mediaTime: this.lastMediaTime >= 0 ? this.lastMediaTime : null };
+              const meta: PoseFrameMeta = {
+                world: worldLandmarks,
+                timestampMs: now,
+                mediaTime: this.stats.lastMediaTime,
+              };
 
               if (smoothed) {
+                this.stats.detectionCount++;
                 this.setStatus('body_detected', callbacks.onStatusChange);
                 callbacks.onKeypoints?.(smoothed, rawLandmarks, meta);
               } else {
+                this.stats.emptyCount++;
                 this.setStatus('body_lost', callbacks.onStatusChange);
                 callbacks.onKeypoints?.(null, rawLandmarks, meta);
               }
             } else {
+              this.stats.emptyCount++;
               this.setStatus('body_lost', callbacks.onStatusChange);
-              callbacks.onKeypoints?.(null, [], { world: undefined, timestampMs: now, mediaTime: this.lastMediaTime >= 0 ? this.lastMediaTime : null });
+              callbacks.onKeypoints?.(null, [], {
+                world: undefined,
+                timestampMs: now,
+                mediaTime: this.stats.lastMediaTime,
+              });
             }
           }
         }
@@ -232,7 +284,7 @@ export class PoseTracker {
     const v = video as VideoWithRVFC;
     // Prefer requestVideoFrameCallback: fires once per decoded camera frame.
     if (typeof v.requestVideoFrameCallback === 'function') {
-      this.rvfcHandle = v.requestVideoFrameCallback((_now, metadata) => callback(metadata.mediaTime));
+      this.rvfcHandle = v.requestVideoFrameCallback((_now, metadata) => callback(metadata?.mediaTime));
     } else {
       this.rafId = requestAnimationFrame(() => callback());
     }
@@ -254,9 +306,8 @@ export class PoseTracker {
     this.trackedVideo = null;
     this.smoother.reset();
     this.lastTimestamp = -1;
-    this.lastMediaTime = -1;
-    this.lastInferenceAt = 0;
-    this.stats.inferenceFps = 0;
+    this.lastInferenceTime = 0;
+    this.resetStats();
   }
 
   /**

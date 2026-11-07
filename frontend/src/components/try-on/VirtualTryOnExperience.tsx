@@ -309,6 +309,17 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
         samplesRequired: fit.distance.samplesRequired,
       },
       garment: sd.garment,
+      vision: {
+        callbackCount: tracker?.stats.callbackCount ?? 0,
+        inferenceCount: tracker?.stats.inferenceCount ?? 0,
+        detectionCount: tracker?.stats.detectionCount ?? 0,
+        emptyCount: tracker?.stats.emptyCount ?? 0,
+        lastMediaTime: tracker?.stats.lastMediaTime ?? null,
+        msSinceLastInference:
+          tracker?.stats.lastInferenceAt && tracker.stats.lastInferenceAt > 0
+            ? performance.now() - tracker.stats.lastInferenceAt
+            : 0,
+      },
       performance: {
         renderFps: currentRenderFpsRef.current,
         inferenceFps: tracker?.stats.inferenceFps ?? 0,
