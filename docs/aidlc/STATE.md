@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | Mode | Manual AI-DLC (ai-dlc-engineering skill not installed), tier 2, brownfield |
-| Branch / commit | `ar-cleanup` @ `0cc7bec` |
+| Branch / commit | `ar-cleanup` @ `e1ea4b0` |
 | Rollback tags | `pre-cleanup-head` (736b542), `pre-cleanup-wt` (e2ffa3e) |
 | Current phase | Phase 1 — Inception (G1 requirements) |
 | Status | `AR_REQUIREMENTS.md` drafted; **awaiting "approved G1"** |
-| Gates | G1 not started · G2 not started · G3 not started |
+| Gates | G1 pending approval · G2 not started · G3 not started |
 | Milestone in progress | none |
 
 ## Approval log
