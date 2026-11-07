@@ -76,7 +76,14 @@ body {
    DRAPE BESPOKE LUXURY ARMOIRE & WOODWORKING CRAFTSMANSHIP
    ============================================================================= */
 
-/* Authentic American Walnut Wood Textures */
+/* Authentic Natural American Walnut Wood Textures */
+.wood-walnut-natural {
+  background-color: #382419;
+  background-image: url('/images/textures/walnut_natural.png');
+  background-size: 512px 512px;
+  background-repeat: repeat;
+}
+
 .wood-walnut-vertical {
   background-color: #28180E;
   background-image: url('/images/textures/walnut_vertical.png');
@@ -92,10 +99,10 @@ body {
 }
 
 .wood-walnut-burl {
-  background-color: #382214;
-  background-image: url('/images/textures/walnut_burl.png');
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
+  background-color: #382419;
+  background-image: url('/images/textures/walnut_natural.png');
+  background-size: 512px 512px;
+  background-repeat: repeat;
 }
 
 .wood-walnut-frame {

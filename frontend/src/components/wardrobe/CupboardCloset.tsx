@@ -8,7 +8,6 @@ import {
   Sparkles,
   ArrowRight,
   Eye,
-  SlidersHorizontal,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -88,7 +87,7 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
     );
   });
 
-  // Items not caught above default to tops rail
+  // Any unclassified garments fall into tops rail
   const classifiedIds = new Set([
     ...tops.map((i) => i.id),
     ...bottoms.map((i) => i.id),
@@ -163,13 +162,13 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
             A. STEPPED TOP CORNICE & CROWN MOULDING
            ---------------------------------------------------- */}
         <div className="relative z-30">
-          {/* Top Overhanging Cap */}
+          {/* Top Overhanging Cap (Horizontal Walnut Grain) */}
           <div className="h-3 sm:h-4 w-[calc(100%+16px)] -ml-2 rounded-t-sm wood-walnut-horizontal border-t border-[#6B4226] border-b border-[#120A05] armoire-cornice relative">
             <div className="absolute inset-x-0 top-0 h-[1px] bg-white/20" />
             <div className="absolute inset-x-0 bottom-0 h-[1px] bg-black/60" />
           </div>
 
-          {/* Stepped Moulding Frieze */}
+          {/* Stepped Moulding Frieze (Dark Solid Walnut Frame) */}
           <div className="h-8 sm:h-10 w-full wood-walnut-frame border-b border-[#120A05] flex items-center justify-between px-4 sm:px-8 relative shadow-md">
             {/* Left Brass Corner Bracket */}
             <div className="flex items-center gap-1.5 opacity-80">
@@ -200,8 +199,8 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
         {/* ----------------------------------------------------
             B. MAIN CABINET HOUSING (Pilasters, Doors & Interior)
            ---------------------------------------------------- */}
-        <div className="relative flex min-h-[640px] sm:min-h-[720px] bg-[#1A0F0A] border-x-4 border-[#28180E] overflow-hidden">
-          {/* LEFT FLUTED PILASTER / COLUMN */}
+        <div className="relative flex min-h-[660px] sm:min-h-[740px] bg-[#1A0F0A] border-x-4 border-[#28180E] overflow-hidden">
+          {/* LEFT FLUTED PILASTER / COLUMN (Long Vertical Grain) */}
           <div className="w-7 sm:w-11 shrink-0 wood-walnut-vertical relative border-r-2 border-[#120A05] flex flex-col justify-between py-6 z-20 shadow-lg">
             {/* Carved Capital */}
             <div className="h-5 w-full bg-gradient-to-b from-[#4A2E1B] to-[#28180E] border-y border-[#6B4226]/40 flex items-center justify-center">
@@ -217,8 +216,8 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                 <div className="w-1.5 h-1.5 rounded-full bg-[#3A2A0C] shadow-inner" />
               </div>
 
-              {/* Flute Groove Shadow Lines */}
-              <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 w-2 border-x border-[#120A05] opacity-60" />
+              {/* Subtle Flute Groove Shadow Lines */}
+              <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 w-2 border-x border-[#120A05] opacity-50" />
 
               {/* Lower Strap Hinge */}
               <div className="w-4 sm:w-6 h-10 brass-hinge-strap rounded-xs border border-[#5E4717] flex flex-col items-center justify-around py-1 shadow-md">
@@ -239,23 +238,35 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
             {/* ....................................................
                 INTERIOR DRESSING ROOM (Always in DOM)
                .................................................... */}
-            <div className="relative flex-1 flex flex-col bg-[#2A1B13] p-4 sm:p-7 space-y-6 overflow-y-auto max-h-[820px] scrollbar-thin scrollbar-thumb-[#4A2E1B]">
-              {/* Recessed Warm Champagne / Amber LED Glow */}
+            <div className="relative flex-1 flex flex-col bg-[#271810] p-4 sm:p-7 space-y-6 overflow-y-auto max-h-[840px] scrollbar-thin scrollbar-thumb-[#4A2E1B]">
+              {/* Recessed Warm Champagne LED Glow from Top Frieze */}
               <div className="absolute inset-0 armoire-interior-lighting pointer-events-none z-10" />
 
-              {/* Interior Back Panel Woodgrain Overlay */}
-              <div className="absolute inset-0 wood-walnut-horizontal opacity-30 pointer-events-none" />
+              {/* Recessed LED Linear Bar at Top */}
+              <div className="absolute top-0 inset-x-8 h-1 bg-gradient-to-r from-transparent via-[#FFF0D4]/70 to-transparent blur-[1px] pointer-events-none z-15" />
 
-              {/* Deep Interior Shadow Falloff */}
-              <div className="absolute inset-0 shadow-[inset_0_20px_35px_rgba(0,0,0,0.65),inset_0_-20px_35px_rgba(0,0,0,0.65)] pointer-events-none z-10" />
+              {/* Subtle Natural Walnut Tongue-and-Groove Back Panel */}
+              <div className="absolute inset-0 wood-walnut-natural opacity-20 pointer-events-none" />
+
+              {/* Vertical Tongue-and-Groove Plank V-Grooves across back wall */}
+              <div
+                className="absolute inset-0 pointer-events-none opacity-25"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(0,0,0,0.6) 80px)",
+                }}
+              />
+
+              {/* Deep Interior Shadow Falloff for Cabinet Box Depth */}
+              <div className="absolute inset-0 shadow-[inset_0_24px_40px_rgba(0,0,0,0.7),inset_0_-24px_40px_rgba(0,0,0,0.7),inset_16px_0_30px_rgba(0,0,0,0.5),inset_-16px_0_30px_rgba(0,0,0,0.5)] pointer-events-none z-10" />
 
               {/* ------------------------------------------------
                   ZONE 1: UPPER HANGING RAIL (T-Shirts & Tops)
                  ------------------------------------------------ */}
               {(activeCompartment === "all" || activeCompartment === "tops") && (
-                <div className="relative z-20 space-y-3">
+                <div className="relative z-20 space-y-2">
                   {/* Compartment Title Frieze */}
-                  <div className="flex items-center justify-between pb-1.5 border-b border-[#523522]">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-[#4A2E1B]/80">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-[#E6C65C] shadow-xs" />
                       <span className="text-xs uppercase tracking-[0.2em] font-serif font-medium text-[#F4F0E8]">
@@ -270,25 +281,22 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                     </span>
                   </div>
 
-                  {/* Physical Cylindrical Brass Rail Pole */}
-                  <div className="relative pt-2 pb-2">
-                    {/* Left & Right Brass Mounting Rosettes */}
-                    <div className="absolute left-0 top-1.5 w-3 h-5 brass-metallic-sheen rounded-r-xs border border-[#523E14] z-10 shadow-sm" />
-                    <div className="absolute right-0 top-1.5 w-3 h-5 brass-metallic-sheen rounded-l-xs border border-[#523E14] z-10 shadow-sm" />
+                  {/* Physical Cylindrical Brass Rail & Hanging Garments */}
+                  <div className="relative pt-3 pb-3">
+                    {/* Brass Mounting Brackets (Screwed into walnut side jambs) */}
+                    <div className="absolute left-0 top-[18px] w-3.5 h-6 brass-metallic-sheen rounded-r-xs border border-[#523E14] z-10 shadow-sm" />
+                    <div className="absolute right-0 top-[18px] w-3.5 h-6 brass-metallic-sheen rounded-l-xs border border-[#523E14] z-10 shadow-sm" />
 
-                    {/* Heavy Cylindrical Rail Pole */}
-                    <div className="h-2.5 w-full brass-rail-pole rounded-full mx-2 shadow-md relative">
-                      {/* Top highlight glint */}
+                    {/* Heavy Cylindrical Brass Rail Pole */}
+                    <div className="absolute top-[21px] inset-x-2 h-2.5 brass-rail-pole rounded-full shadow-md z-10 pointer-events-none">
                       <div className="absolute inset-x-0 top-[1px] h-[1px] bg-white/50 rounded-full" />
                     </div>
 
-                    {/* Garments Hanging on Upper Rail */}
+                    {/* Garments Hanging on Upper Rail (Hooks loop right over the rail) */}
                     {activeTops.length > 0 ? (
-                      <div className="pt-2 flex items-start gap-4 sm:gap-6 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-[#5E3B24]">
+                      <div className="relative z-15 flex items-start gap-5 sm:gap-7 overflow-x-auto pt-1 pb-4 px-2 scrollbar-thin scrollbar-thumb-[#5E3B24]">
                         {activeTops.map((item) => (
-                          <div key={item.id} className="shrink-0">
-                            <HangerGarment item={item} onSelect={onSelectItem} />
-                          </div>
+                          <HangerGarment key={item.id} item={item} onSelect={onSelectItem} />
                         ))}
                       </div>
                     ) : (
@@ -314,15 +322,15 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
               {(activeCompartment === "all" ||
                 activeCompartment === "bottoms" ||
                 activeCompartment === "dresses") && (
-                <div className="relative z-20 grid grid-cols-1 md:grid-cols-12 gap-6 pt-2">
+                <div className="relative z-20 grid grid-cols-1 md:grid-cols-12 gap-6 pt-1">
                   {/* LEFT BAY: Jeans, Trousers & Skirts */}
                   {(activeCompartment === "all" || activeCompartment === "bottoms") && (
                     <div
-                      className={`space-y-3 ${
+                      className={`space-y-2 ${
                         activeCompartment === "bottoms" ? "md:col-span-12" : "md:col-span-7"
                       }`}
                     >
-                      <div className="flex items-center justify-between pb-1.5 border-b border-[#523522]">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-[#4A2E1B]/80">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#E6C65C] shadow-xs" />
                           <span className="text-xs uppercase tracking-[0.2em] font-serif font-medium text-[#F4F0E8]">
@@ -337,37 +345,39 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                         </span>
                       </div>
 
-                      {/* Solid Walnut Shelf with Brass Rail Underneath */}
-                      <div className="relative pt-2">
-                        {/* Solid Walnut Horizontal Shelf */}
-                        <div className="h-3 w-full wood-walnut-horizontal border-t border-[#6B4226] border-b border-[#140C07] shelf-depth-shadow relative mb-3 rounded-2xs">
+                      {/* Solid Walnut Shelf with Brass Rail */}
+                      <div className="relative pt-1">
+                        {/* Solid Walnut Shelf (Horizontal Grain & Depth Shadow) */}
+                        <div className="h-3 w-full wood-walnut-horizontal border-t border-[#6B4226] border-b border-[#140C07] shelf-depth-shadow relative mb-2 rounded-2xs">
                           <div className="absolute inset-x-0 top-0 h-[1px] bg-white/20" />
                         </div>
 
-                        {/* Rail Pole */}
-                        <div className="h-2 w-full brass-rail-pole rounded-full shadow-md" />
+                        {/* Rail Pole with Mounting Brackets */}
+                        <div className="relative pt-2 pb-2">
+                          <div className="absolute left-0 top-[15px] w-3 h-5 brass-metallic-sheen rounded-r-xs border border-[#523E14] z-10 shadow-sm" />
+                          <div className="absolute right-0 top-[15px] w-3 h-5 brass-metallic-sheen rounded-l-xs border border-[#523E14] z-10 shadow-sm" />
+                          <div className="absolute top-[18px] inset-x-2 h-2 brass-rail-pole rounded-full shadow-md z-10 pointer-events-none" />
 
-                        {bottoms.length > 0 ? (
-                          <div className="pt-2 flex items-start gap-4 sm:gap-6 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-[#5E3B24]">
-                            {bottoms.map((item) => (
-                              <div key={item.id} className="shrink-0">
-                                <HangerGarment item={item} onSelect={onSelectItem} />
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="py-12 text-center bg-[#1B1009]/60 rounded-xs border border-dashed border-[#5E3B24] my-2">
-                            <p className="text-xs text-[#C5BDB0] font-serif italic">
-                              No denim or trousers currently stored in this bay.
-                            </p>
-                            <Link
-                              href="/collections/jeans"
-                              className="inline-flex items-center gap-1.5 text-xs text-[#F3DE8A] font-medium mt-2 hover:underline uppercase tracking-wider"
-                            >
-                              Explore Denim & Trousers <ArrowRight className="w-3.5 h-3.5" />
-                            </Link>
-                          </div>
-                        )}
+                          {bottoms.length > 0 ? (
+                            <div className="relative z-15 flex items-start gap-5 sm:gap-7 overflow-x-auto pt-1 pb-4 px-2 scrollbar-thin scrollbar-thumb-[#5E3B24]">
+                              {bottoms.map((item) => (
+                                <HangerGarment key={item.id} item={item} onSelect={onSelectItem} />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="py-12 text-center bg-[#1B1009]/60 rounded-xs border border-dashed border-[#5E3B24] my-2">
+                              <p className="text-xs text-[#C5BDB0] font-serif italic">
+                                No denim or trousers currently stored in this bay.
+                              </p>
+                              <Link
+                                href="/collections/jeans"
+                                className="inline-flex items-center gap-1.5 text-xs text-[#F3DE8A] font-medium mt-2 hover:underline uppercase tracking-wider"
+                              >
+                                Explore Denim & Trousers <ArrowRight className="w-3.5 h-3.5" />
+                              </Link>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -375,13 +385,13 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                   {/* RIGHT BAY: Full-Height Tall Bay for Dresses & Long Coats */}
                   {(activeCompartment === "all" || activeCompartment === "dresses") && (
                     <div
-                      className={`space-y-3 ${
+                      className={`space-y-2 ${
                         activeCompartment === "all"
                           ? "md:col-span-5 md:border-l-4 md:border-[#1A0F0A] md:pl-6"
                           : "md:col-span-12"
                       }`}
                     >
-                      <div className="flex items-center justify-between pb-1.5 border-b border-[#523522]">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-[#4A2E1B]/80">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#E6C65C] shadow-xs" />
                           <span className="text-xs uppercase tracking-[0.2em] font-serif font-medium text-[#F4F0E8]">
@@ -397,15 +407,15 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                       </div>
 
                       {/* High-Mounted Brass Rail for Full Drape Clearance */}
-                      <div className="relative pt-2">
-                        <div className="h-2 w-full brass-rail-pole rounded-full shadow-md" />
+                      <div className="relative pt-1 pb-2 min-h-[360px] flex flex-col justify-between">
+                        <div className="absolute left-0 top-[15px] w-3 h-5 brass-metallic-sheen rounded-r-xs border border-[#523E14] z-10 shadow-sm" />
+                        <div className="absolute right-0 top-[15px] w-3 h-5 brass-metallic-sheen rounded-l-xs border border-[#523E14] z-10 shadow-sm" />
+                        <div className="absolute top-[18px] inset-x-2 h-2 brass-rail-pole rounded-full shadow-md z-10 pointer-events-none" />
 
                         {dresses.length > 0 ? (
-                          <div className="pt-2 flex items-start gap-4 sm:gap-6 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-[#5E3B24]">
+                          <div className="relative z-15 flex items-start gap-5 sm:gap-7 overflow-x-auto pt-1 pb-4 px-2 scrollbar-thin scrollbar-thumb-[#5E3B24]">
                             {dresses.map((item) => (
-                              <div key={item.id} className="shrink-0">
-                                <HangerGarment item={item} onSelect={onSelectItem} />
-                              </div>
+                              <HangerGarment key={item.id} item={item} onSelect={onSelectItem} tall={true} />
                             ))}
                           </div>
                         ) : (
@@ -468,8 +478,8 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                         drawersOpen ? "ring-2 ring-[#D4AF37]/50 translate-y-1" : "hover:border-[#D4AF37]/40"
                       }`}
                     >
-                      {/* Inset Burl Accent */}
-                      <div className="absolute inset-2 wood-walnut-burl opacity-40 rounded-2xs pointer-events-none" />
+                      {/* Inset Natural Cathedral Accent */}
+                      <div className="absolute inset-2 wood-walnut-natural opacity-30 rounded-2xs pointer-events-none" />
 
                       <div className="relative z-10 flex items-center justify-between">
                         <div>
@@ -495,8 +505,8 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                         drawersOpen ? "ring-2 ring-[#D4AF37]/50 translate-y-1" : "hover:border-[#D4AF37]/40"
                       }`}
                     >
-                      {/* Inset Burl Accent */}
-                      <div className="absolute inset-2 wood-walnut-burl opacity-40 rounded-2xs pointer-events-none" />
+                      {/* Inset Natural Cathedral Accent */}
+                      <div className="absolute inset-2 wood-walnut-natural opacity-30 rounded-2xs pointer-events-none" />
 
                       <div className="relative z-10 flex items-center justify-between">
                         <div>
@@ -589,19 +599,19 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                 transform: doorsOpen ? "rotateY(-108deg)" : "rotateY(0deg)",
               }}
             >
-              {/* Outer Door Face */}
+              {/* Outer Door Face (Dark Walnut Frame with Natural Cathedral Grain Panels) */}
               <div className="absolute inset-0 wood-walnut-frame border-r border-[#0D0704] shadow-2xl p-3 sm:p-5 flex flex-col justify-between backface-hidden">
-                {/* Upper Raised Wood Panel */}
+                {/* Upper Raised Wood Panel (Natural Cathedral Walnut) */}
                 <div className="flex-1 wood-walnut-vertical door-panel-raised border-2 border-[#120A05] rounded-xs p-2 sm:p-3 relative mb-3">
-                  {/* Bookmatched Burl Veneer Inset */}
-                  <div className="w-full h-full wood-walnut-burl door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80 flex items-center justify-center p-3">
+                  {/* Natural Cathedral Grain Inset (Replaced Swirly Burl) */}
+                  <div className="w-full h-full wood-walnut-natural door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80 flex items-center justify-center p-3">
                     <div className="w-full h-full border border-dashed border-[#D4AF37]/15 rounded-2xs flex items-center justify-center" />
                   </div>
                 </div>
 
-                {/* Lower Raised Wood Panel */}
+                {/* Lower Raised Wood Panel (Natural Cathedral Walnut) */}
                 <div className="h-28 sm:h-36 wood-walnut-vertical door-panel-raised border-2 border-[#120A05] rounded-xs p-2 relative">
-                  <div className="w-full h-full wood-walnut-burl door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80" />
+                  <div className="w-full h-full wood-walnut-natural door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80" />
                 </div>
 
                 {/* Left Door Handle & Half Escutcheon Lock */}
@@ -623,12 +633,12 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                 className="absolute inset-0 wood-walnut-vertical border-l-2 border-[#1A0F0A] p-4 flex flex-col justify-between shadow-2xl backface-hidden"
                 style={{ transform: "rotateY(180deg)" }}
               >
-                <div className="flex-1 wood-walnut-horizontal door-panel-inner-recess border border-[#140C07] rounded-xs p-3">
+                <div className="flex-1 wood-walnut-natural door-panel-inner-recess border border-[#140C07] rounded-xs p-3">
                   <span className="text-[9px] uppercase tracking-[0.2em] font-serif text-[#C5BDB0]/60 block text-center">
                     Maison DRAPE Atelier
                   </span>
                 </div>
-                <div className="h-24 wood-walnut-horizontal door-panel-inner-recess border border-[#140C07] rounded-xs mt-3" />
+                <div className="h-24 wood-walnut-natural door-panel-inner-recess border border-[#140C07] rounded-xs mt-3" />
               </div>
             </div>
 
@@ -649,17 +659,17 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                 {/* Center Astragal Seam Moulding Overhang */}
                 <div className="absolute inset-y-0 -left-1.5 w-3 wood-walnut-vertical border-x border-[#120A05] shadow-md z-10" />
 
-                {/* Upper Raised Wood Panel */}
+                {/* Upper Raised Wood Panel (Natural Cathedral Walnut) */}
                 <div className="flex-1 wood-walnut-vertical door-panel-raised border-2 border-[#120A05] rounded-xs p-2 sm:p-3 relative mb-3">
-                  {/* Bookmatched Burl Veneer Inset */}
-                  <div className="w-full h-full wood-walnut-burl door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80 flex items-center justify-center p-3">
+                  {/* Natural Cathedral Grain Inset */}
+                  <div className="w-full h-full wood-walnut-natural door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80 flex items-center justify-center p-3">
                     <div className="w-full h-full border border-dashed border-[#D4AF37]/15 rounded-2xs flex items-center justify-center" />
                   </div>
                 </div>
 
-                {/* Lower Raised Wood Panel */}
+                {/* Lower Raised Wood Panel (Natural Cathedral Walnut) */}
                 <div className="h-28 sm:h-36 wood-walnut-vertical door-panel-raised border-2 border-[#120A05] rounded-xs p-2 relative">
-                  <div className="w-full h-full wood-walnut-burl door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80" />
+                  <div className="w-full h-full wood-walnut-natural door-panel-inner-recess rounded-2xs border border-[#4A2E1B]/80" />
                 </div>
 
                 {/* Right Door Handle & Half Escutcheon Lock */}
@@ -681,12 +691,12 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                 className="absolute inset-0 wood-walnut-vertical border-r-2 border-[#1A0F0A] p-4 flex flex-col justify-between shadow-2xl backface-hidden"
                 style={{ transform: "rotateY(180deg)" }}
               >
-                <div className="flex-1 wood-walnut-horizontal door-panel-inner-recess border border-[#140C07] rounded-xs p-3">
+                <div className="flex-1 wood-walnut-natural door-panel-inner-recess border border-[#140C07] rounded-xs p-3">
                   <span className="text-[9px] uppercase tracking-[0.2em] font-serif text-[#C5BDB0]/60 block text-center">
                     Haute Ébénisterie
                   </span>
                 </div>
-                <div className="h-24 wood-walnut-horizontal door-panel-inner-recess border border-[#140C07] rounded-xs mt-3" />
+                <div className="h-24 wood-walnut-natural door-panel-inner-recess border border-[#140C07] rounded-xs mt-3" />
               </div>
             </div>
 
@@ -724,7 +734,7 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
             )}
           </div>
 
-          {/* RIGHT FLUTED PILASTER / COLUMN */}
+          {/* RIGHT FLUTED PILASTER / COLUMN (Long Vertical Grain) */}
           <div className="w-7 sm:w-11 shrink-0 wood-walnut-vertical relative border-l-2 border-[#120A05] flex flex-col justify-between py-6 z-20 shadow-lg">
             {/* Carved Capital */}
             <div className="h-5 w-full bg-gradient-to-b from-[#4A2E1B] to-[#28180E] border-y border-[#6B4226]/40 flex items-center justify-center">
@@ -740,8 +750,8 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
                 <div className="w-1.5 h-1.5 rounded-full bg-[#3A2A0C] shadow-inner" />
               </div>
 
-              {/* Flute Groove Shadow Lines */}
-              <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 w-2 border-x border-[#120A05] opacity-60" />
+              {/* Subtle Flute Groove Shadow Lines */}
+              <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 w-2 border-x border-[#120A05] opacity-50" />
 
               {/* Lower Strap Hinge */}
               <div className="w-4 sm:w-6 h-10 brass-hinge-strap rounded-xs border border-[#5E4717] flex flex-col items-center justify-around py-1 shadow-md">
@@ -765,7 +775,7 @@ export const CupboardCloset: React.FC<CupboardClosetProps> = ({
           {/* Upper Plinth Moulding Torus */}
           <div className="h-2 w-full bg-[#120A05] border-t border-black/40" />
 
-          {/* Heavy Solid Dark Walnut Plinth Base */}
+          {/* Heavy Solid Dark Walnut Plinth Base (Horizontal Grain) */}
           <div className="h-10 sm:h-12 w-[calc(100%+16px)] -ml-2 wood-walnut-horizontal border-t border-[#6B4226] border-b-2 border-[#120A05] relative flex items-center justify-between px-6 shadow-xl">
             <div className="absolute inset-x-0 top-0 h-[1px] bg-white/15" />
 
