@@ -73,3 +73,5 @@ frontend/.env.local
 
 # AR test build output
 frontend/dist_test/
+frontend/scripts/lib/three-wrapper/
+frontend/scripts/lib/stub-gltf-loader.cjs

@@ -8,8 +8,16 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "lib": ["es2022", "dom"]
+    "lib": [
+      "es2022",
+      "dom"
+    ]
   },
-  "include": ["../src/lib/ar/*.ts"],
-  "exclude": ["../src/lib/ar/three-scene.ts", "../src/lib/ar/pose-tracker.ts"]
+  "include": [
+    "../src/lib/ar/*.ts",
+    "../src/lib/ar/debug/*.ts"
+  ],
+  "exclude": [
+    "../src/lib/ar/pose-tracker.ts"
+  ]
 }
