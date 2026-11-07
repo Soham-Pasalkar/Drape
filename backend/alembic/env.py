@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
 from app.core.database import Base
+import app.domain.models  # Ensure all models are registered on Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -25,8 +26,11 @@ if config.config_file_name is not None:
 # Set target metadata for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with application settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Determine database URL from config or application settings
+db_url = config.get_main_option("sqlalchemy.url")
+if not db_url:
+    db_url = settings.DATABASE_URL
+    config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:
@@ -52,8 +56,12 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run migrations in 'online' mode with async engine."""
+    effective_url = config.get_main_option("sqlalchemy.url") or settings.DATABASE_URL
+    if effective_url.startswith("sqlite:///"):
+        effective_url = effective_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    configuration["sqlalchemy.url"] = effective_url
 
     connectable = async_engine_from_config(
         configuration,
@@ -69,7 +77,11 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    asyncio.run(run_async_migrations())
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(asyncio.run, run_async_migrations())
+        future.result()
 
 
 if context.is_offline_mode():

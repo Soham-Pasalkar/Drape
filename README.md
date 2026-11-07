@@ -99,11 +99,16 @@ npm run dev
 | Component | URL | Description |
 |---|---|---|
 | **Frontend Web App** | [http://localhost:3000](http://localhost:3000) | Editorial homepage, navigation, 4 pillars presentation, live backend probe |
+| **Collections Catalog** | [http://localhost:3000/collections](http://localhost:3000/collections) | Everyday clothing catalog (18 styles across 5 categories) with color filtering |
+| **3D Virtual Try-On** | [http://localhost:3000/try-on](http://localhost:3000/try-on) | Real-time WebGL/MediaPipe 3D garment drape & XPBD cloth simulation |
+| **Smart Wardrobe (Armoire)** | [http://localhost:3000/wardrobe](http://localhost:3000/wardrobe) | Handcrafted American walnut luxury armoire displaying customer's digital vault |
+| **DRAPE Studio (Stylist)** | [http://localhost:3000/wardrobe/studio](http://localhost:3000/wardrobe/studio) | Daily personalized fashion stylist, ensemble recommendations & rotation health |
+| **Wear Diary & Calendar** | [http://localhost:3000/wardrobe/history](http://localhost:3000/wardrobe/history) | Archival wear ledger, monthly calendar & snapshot preservation |
+| **Outfit Planner** | [http://localhost:3000/wardrobe/planner](http://localhost:3000/wardrobe/planner) | Scheduled future outfits with mark-as-worn conversion |
 | **Backend API Base** | [http://localhost:8000](http://localhost:8000) | Root FastAPI ASGI application |
-| **Liveness Probe** | [http://localhost:8000/healthz](http://localhost:8000/healthz) | Process health check (independent of backing databases) |
-| **Readiness Probe** | [http://localhost:8000/readyz](http://localhost:8000/readyz) | Backing store connectivity probe (PostgreSQL) |
 | **API Documentation (Swagger)** | [http://localhost:8000/docs](http://localhost:8000/docs) | Interactive OpenAPI 3.1 UI |
-| **API Documentation (ReDoc)** | [http://localhost:8000/redoc](http://localhost:8000/redoc) | Alternate structured documentation view |
+| **Liveness Probe** | [http://localhost:8000/healthz](http://localhost:8000/healthz) | Process health check |
+| **Readiness Probe** | [http://localhost:8000/readyz](http://localhost:8000/readyz) | PostgreSQL database connectivity probe |
 
 ---
 
@@ -118,23 +123,27 @@ DRAPE isolates core business domains behind hexagonal ports:
 5. **`TaxCalculationPort`** (`app/domain/ports/tax_calculation_port.py`): Automated sales tax, VAT, and fiscal nexus calculation.
 6. **`CatalogSyncPort`** (`app/domain/ports/catalog_sync_port.py`): Ingestion and synchronization of SKUs, stock deltas, and product media links.
 
-Mock adapters for all six ports are available in `app/infrastructure/adapters/` for offline unit testing without external cloud credentials.
-
 ---
 
 ## Verification & Testing Commands
 
 ```bash
-# Backend unit & contract tests
-cd backend && ../backend/.venv/bin/pytest tests
+# Backend unit, contract, and DRAPE Studio tests (109 tests)
+cd backend && .venv/bin/pytest tests
 
-# Alembic migration verification
-cd backend && ../backend/.venv/bin/alembic heads
+# Commerce and catalog data integrity suite (21 tests)
+npm --prefix frontend run test:commerce
+
+# AR virtual fitting suite (284 tests across 9 suites)
+npm --prefix frontend run test:ar
+
+# 3D garment asset validation (8 canonical GLBs)
+npm --prefix frontend run validate:garments
 
 # Frontend linting
 npm --prefix frontend run lint
 
-# Frontend production build verification
+# Frontend production build verification (23 routes)
 npm --prefix frontend run build
 ```
 

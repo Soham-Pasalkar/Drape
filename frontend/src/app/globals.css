@@ -71,3 +71,123 @@ body {
   font-size: 0.85em;
   vertical-align: middle;
 }
+
+/* =============================================================================
+   DRAPE BESPOKE LUXURY ARMOIRE & WOODWORKING CRAFTSMANSHIP
+   ============================================================================= */
+
+/* Authentic Natural American Walnut Wood Textures */
+.wood-walnut-natural {
+  background-color: #382419;
+  background-image: url('/images/textures/walnut_natural.png');
+  background-size: 512px 512px;
+  background-repeat: repeat;
+}
+
+.wood-walnut-vertical {
+  background-color: #28180E;
+  background-image: url('/images/textures/walnut_vertical.png');
+  background-size: 400px 400px;
+  background-repeat: repeat;
+}
+
+.wood-walnut-horizontal {
+  background-color: #28180E;
+  background-image: url('/images/textures/walnut_horizontal.png');
+  background-size: 400px 400px;
+  background-repeat: repeat;
+}
+
+.wood-walnut-burl {
+  background-color: #382419;
+  background-image: url('/images/textures/walnut_natural.png');
+  background-size: 512px 512px;
+  background-repeat: repeat;
+}
+
+.wood-walnut-frame {
+  background-color: #1F120A;
+  background-image: url('/images/textures/walnut_dark_frame.png');
+  background-size: 300px 300px;
+  background-repeat: repeat;
+}
+
+/* Aged & Brushed Antique Brass Hardware */
+.brass-metallic-sheen {
+  background: linear-gradient(135deg, #D4AF37 0%, #F3DE8A 30%, #C5A059 60%, #8A6E30 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.5);
+}
+
+.brass-rail-pole {
+  background: linear-gradient(180deg, #EAD087 0%, #FFF3D1 25%, #C5A059 55%, #7A5F23 90%, #523E14 100%);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+
+.brass-hinge-strap {
+  background: linear-gradient(90deg, #8A6E30 0%, #D4AF37 40%, #F5E6B3 60%, #8A6E30 100%);
+  box-shadow: 1px 2px 5px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* Stepped Crown Moulding / Cornice */
+.armoire-cornice {
+  box-shadow: 
+    0 1px 0 rgba(255, 255, 255, 0.12),
+    0 8px 20px rgba(0, 0, 0, 0.6),
+    inset 0 2px 3px rgba(255, 255, 255, 0.15),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.7);
+}
+
+/* Raised Wood Door Panel Detailing */
+.door-panel-raised {
+  box-shadow: 
+    inset 2px 2px 4px rgba(255, 255, 255, 0.12),
+    inset -2px -2px 6px rgba(0, 0, 0, 0.6),
+    0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.door-panel-inner-recess {
+  box-shadow: 
+    inset 3px 3px 8px rgba(0, 0, 0, 0.7),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.08);
+}
+
+/* Warm Champagne / Amber Recessed Dressing Room LED */
+.armoire-interior-lighting {
+  background: radial-gradient(ellipse at 50% 0%, rgba(255, 235, 205, 0.28) 0%, rgba(255, 220, 175, 0.12) 40%, transparent 80%);
+}
+
+.shelf-depth-shadow {
+  box-shadow: 
+    0 8px 16px -2px rgba(0, 0, 0, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Solid Cabinet Physical Depth */
+.armoire-cabinet-shadow {
+  box-shadow: 
+    0 40px 90px -20px rgba(0, 0, 0, 0.75),
+    0 20px 40px -10px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* 3D Transform Utilities for Luxury Armoire */
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.perspective-armoire {
+  perspective: 2400px;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+/* Luxury Emerald Velvet Drawer Lining */
+.velvet-lining {
+  background: radial-gradient(circle at 50% 35%, #1d3326 0%, #112118 70%, #0a140f 100%);
+  box-shadow: inset 0 6px 14px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(212, 175, 55, 0.25);
+}
+
+

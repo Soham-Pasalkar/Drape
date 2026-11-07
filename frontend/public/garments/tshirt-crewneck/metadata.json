@@ -1,0 +1,68 @@
+{
+  "id": "tshirt-crewneck",
+  "name": "Atelier Crew-Neck T-Shirt",
+  "category": "tops",
+  "description": "Precision-tailored classic crew-neck cut from 240gsm combed Egyptian cotton jersey in Noir.",
+  "modelPath": "/garments/tshirt-crewneck/model.glb",
+  "thumbnailPath": "/garments/tshirt-crewneck/thumbnail.svg",
+  "dimensions": {
+    "chestCm": 98,
+    "waistCm": 90,
+    "lengthCm": 66,
+    "shoulderSpanCm": 46
+  },
+  "modelDimensions": {
+    "width": 0.892,
+    "height": 0.659,
+    "depth": 0.188
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.2572,
+    "z": 0,
+    "type": "shoulder_center"
+  },
+  "fittingProfile": {
+    "category": "tops",
+    "anchor": "torso",
+    "scaleMultipliers": {
+      "width": 1.05,
+      "height": 1.02,
+      "depth": 1
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#1a1a1a",
+    "roughness": 0.88,
+    "metalness": 0.04
+  },
+  "fabric": {
+    "fabricType": "cotton_jersey",
+    "stretchLimitPercent": 18,
+    "sheenColor": "#333333",
+    "sheenRoughness": 0.6,
+    "roughness": 0.88,
+    "metalness": 0.04,
+    "densityGsm": 240
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.0002,
+    "bendCompliance": 0.05,
+    "skinAttachmentDist": 0.04,
+    "lraStiffness": 0.8,
+    "damping": 0.05,
+    "inertialCoupling": 0.25,
+    "collisionTolerance": 0.012
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-07T06:38:24.243Z"
+}

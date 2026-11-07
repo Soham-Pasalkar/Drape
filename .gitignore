@@ -67,3 +67,11 @@ frontend/.env.local
 *.sqlite3
 *.db
 
+# TypeScript Build Artifacts
+*.tsbuildinfo
+
+
+# AR test build output
+frontend/dist_test/
+frontend/scripts/lib/three-wrapper/
+frontend/scripts/lib/stub-gltf-loader.cjs

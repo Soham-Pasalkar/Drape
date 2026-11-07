@@ -9,7 +9,7 @@ Conforms to docs/architecture/interfaces/identity_port.md.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import List
 
 
 @dataclass(frozen=True)
@@ -60,5 +60,20 @@ class IdentityPort(ABC):
     @abstractmethod
     async def refresh_token(self, refresh_token: str) -> AuthTokenResponse:
         """Exchanges a valid refresh token for a fresh token pair."""
+        pass
+
+    @abstractmethod
+    def hash_password(self, password: str) -> str:
+        """Hashes plaintext password with secure salt."""
+        pass
+
+    @abstractmethod
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verifies plaintext password against stored hash."""
+        pass
+
+    @abstractmethod
+    async def revoke_all_user_sessions(self, user_id: str) -> bool:
+        """Revokes all active sessions for a user."""
         pass
 

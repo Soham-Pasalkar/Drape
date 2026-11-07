@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { Sparkles, Camera, ShieldCheck, Check, Layers } from "lucide-react";
+import Link from "next/link";
+import { Sparkles, Camera, ShieldCheck, Layers, ArrowUpRight } from "lucide-react";
 
 export default function VirtualTryOnPreview() {
   const [activeMode, setActiveMode] = useState<"look" | "wireframe">("look");
@@ -42,7 +43,7 @@ export default function VirtualTryOnPreview() {
               <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10">
                 <span className="inline-flex items-center space-x-1.5 text-[10px] uppercase tracking-widest font-mono bg-warm-ivory text-ink-black px-2.5 py-1 font-bold">
                   <Sparkles className="w-3 h-3 text-electric-blue" />
-                  <span>PREVIEW CONCEPT • COMING IN PHASE 2</span>
+                  <span>3D AR STUDIO • 8 CALIBRATED RIGS</span>
                 </span>
 
                 {/* Interactive Mode Toggle */}
@@ -130,6 +131,18 @@ export default function VirtualTryOnPreview() {
                   </p>
                 </div>
               </div>
+            </div>
+
+            {/* Action CTA to Live Try-On Studio */}
+            <div className="pt-2">
+              <Link
+                href="/try-on"
+                className="inline-flex items-center space-x-2 px-6 py-3.5 bg-warm-ivory text-ink-black font-mono text-xs uppercase tracking-widest font-semibold hover:bg-electric-blue hover:text-white transition-all shadow-lg group"
+              >
+                <Camera className="w-4 h-4 text-electric-blue group-hover:text-white transition-colors" />
+                <span>Launch Live 3D AR Mirror</span>
+                <ArrowUpRight className="w-4 h-4 ml-1" />
+              </Link>
             </div>
 
             {/* Truthfulness Notice */}

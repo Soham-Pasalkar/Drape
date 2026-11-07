@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2022",
+    "moduleResolution": "node",
+    "outDir": "../dist_test",
+    "rootDir": "../src/lib/ar",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "lib": [
+      "es2022",
+      "dom"
+    ]
+  },
+  "include": [
+    "../src/lib/ar/*.ts",
+    "../src/lib/ar/debug/*.ts",
+    "../src/lib/ar/pipeline/*.ts",
+    "../src/lib/ar/session/*.ts"
+  ],
+  "exclude": []
+}

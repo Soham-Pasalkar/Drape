@@ -55,3 +55,12 @@ class MockIdentityAdapter(IdentityPort):
             expires_in_seconds=900,
         )
 
+    def hash_password(self, password: str) -> str:
+        return f"mock_hashed_{password}"
+
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        return hashed_password == f"mock_hashed_{plain_password}"
+
+    async def revoke_all_user_sessions(self, user_id: str) -> bool:
+        return True
+

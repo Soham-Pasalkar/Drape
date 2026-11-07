@@ -1,0 +1,68 @@
+{
+  "id": "skirt-aline",
+  "name": "Virgin Wool A-Line Skirt",
+  "category": "skirts",
+  "description": "Structured high-waist A-line silhouette with concealed side fasteners in fine Italian wool twill.",
+  "modelPath": "/garments/skirt-aline/model.glb",
+  "thumbnailPath": "/garments/skirt-aline/thumbnail.svg",
+  "dimensions": {
+    "waistCm": 72,
+    "hipsCm": 98,
+    "lengthCm": 62,
+    "hemSweepCm": 140
+  },
+  "modelDimensions": {
+    "width": 0.526,
+    "height": 0.66,
+    "depth": 0.414
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.04,
+    "z": 0,
+    "type": "waist_center"
+  },
+  "fittingProfile": {
+    "category": "skirts",
+    "anchor": "hips",
+    "scaleMultipliers": {
+      "width": 1.05,
+      "height": 1,
+      "depth": 1
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#151c24",
+    "roughness": 0.85,
+    "metalness": 0.05
+  },
+  "fabric": {
+    "fabricType": "wool_twill",
+    "stretchLimitPercent": 6,
+    "sheenColor": "#314254",
+    "sheenRoughness": 0.7,
+    "roughness": 0.85,
+    "metalness": 0.05,
+    "densityGsm": 340
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.0001,
+    "bendCompliance": 0.12,
+    "skinAttachmentDist": 0.18,
+    "lraStiffness": 0.92,
+    "damping": 0.06,
+    "inertialCoupling": 0.4,
+    "collisionTolerance": 0.015
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-06T16:42:24.379Z"
+}

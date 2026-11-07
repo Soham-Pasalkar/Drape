@@ -1,0 +1,68 @@
+{
+  "id": "tshirt-fitted",
+  "name": "Sculpted Ribbed Slim Tee",
+  "category": "tops",
+  "description": "Contours the torso with micro-ribbed modal jersey for an understated, sharp profile in Anthracite.",
+  "modelPath": "/garments/tshirt-fitted/model.glb",
+  "thumbnailPath": "/garments/tshirt-fitted/thumbnail.svg",
+  "dimensions": {
+    "chestCm": 88,
+    "waistCm": 76,
+    "lengthCm": 60,
+    "shoulderSpanCm": 40
+  },
+  "modelDimensions": {
+    "width": 0.759,
+    "height": 0.599,
+    "depth": 0.165
+  },
+  "modelAnchor": {
+    "x": 0,
+    "y": 0.232,
+    "z": 0,
+    "type": "shoulder_center"
+  },
+  "fittingProfile": {
+    "category": "tops",
+    "anchor": "torso",
+    "scaleMultipliers": {
+      "width": 0.95,
+      "height": 0.96,
+      "depth": 0.9
+    },
+    "yOffset": 0,
+    "zOffset": 0
+  },
+  "material": {
+    "color": "#343330",
+    "roughness": 0.82,
+    "metalness": 0.06
+  },
+  "fabric": {
+    "fabricType": "modal_rib",
+    "stretchLimitPercent": 25,
+    "sheenColor": "#555555",
+    "sheenRoughness": 0.5,
+    "roughness": 0.82,
+    "metalness": 0.06,
+    "densityGsm": 210
+  },
+  "simulation": {
+    "enabled": true,
+    "substeps": 4,
+    "iterations": 8,
+    "stretchCompliance": 0.0005,
+    "bendCompliance": 0.02,
+    "skinAttachmentDist": 0.015,
+    "lraStiffness": 0.95,
+    "damping": 0.08,
+    "inertialCoupling": 0.15,
+    "collisionTolerance": 0.008
+  },
+  "license": {
+    "type": "Proprietary - DRAPE Luxury Atelier",
+    "commercialUsePermitted": true,
+    "author": "DRAPE 3D Studio"
+  },
+  "createdAt": "2026-11-07T06:38:24.248Z"
+}
