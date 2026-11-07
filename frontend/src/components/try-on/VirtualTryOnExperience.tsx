@@ -51,7 +51,8 @@ import { CameraManager } from "@/lib/ar/camera";
 import { PoseTracker, PoseTrackerCallbacks } from "@/lib/ar/pose-tracker";
 import { ThreeSceneManager } from "@/lib/ar/three-scene";
 import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
-import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC, imageToDisplay } from "@/lib/ar/coordinates";
+import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC } from "@/lib/ar/coordinates";
+import { computeRegistration } from "@/lib/ar/debug/registration";
 import type { DebugMaterialMode } from "@/lib/ar/debug/stage1-probe";
 import * as THREE from "three";
 import TrackingStatusBanner from "./TrackingStatusBanner";
@@ -297,37 +298,20 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       framingGuidance: fit.framingGuidance,
       measurements: fit.measurements,
       ease: fit.ease,
-      registration: (() => {
-        if (!d) return null;
-        const reg = scene.registrationPixels(d);
-        const raw = poseFrameRef.current.landmarks;
-        const kp = poseFrameRef.current.keypoints;
-        const mirrored = cameraManagerRef.current?.mirror.value === true;
-        const toScreen = (p: { x: number; y: number }) => ({ x: mirrored ? d.containerWidth - p.x : p.x, y: p.y });
-        const lmDisp = (pt: { x: number; y: number }) => toScreen(imageToDisplay({ x: pt.x * d.videoWidth, y: pt.y * d.videoHeight }, d));
-        const smoothedOf: Record<string, LandmarkPoint | undefined> = {
-          left_shoulder: kp?.leftShoulder, right_shoulder: kp?.rightShoulder, left_hip: kp?.leftHip, right_hip: kp?.rightHip,
-        };
-        const idx: Record<string, number> = { left_shoulder: 11, right_shoulder: 12, left_hip: 23, right_hip: 24 };
-        const errors: Record<string, { raw: number; smoothed: number } | null> = {};
-        for (const [name, i] of Object.entries(idx)) {
-          const r = raw[i];
-          const mg = reg.keypoints[name];
-          const sm = smoothedOf[name];
-          if (!r || (r.visibility ?? 0) < 0.5 || !mg || !sm) { errors[name] = null; continue; }
-          const m2 = toScreen(mg), a = lmDisp(r), b = lmDisp(sm);
-          errors[name] = { raw: Math.hypot(m2.x - a.x, m2.y - a.y), smoothed: Math.hypot(m2.x - b.x, m2.y - b.y) };
-        }
-        let anchorDx: number | null = null, anchorDy: number | null = null, mid: { x: number; y: number } | null = null;
-        if (raw[11] && raw[12] && reg.garmentAnchor) {
-          const a = lmDisp(raw[11]), b = lmDisp(raw[12]);
-          mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-          const g = toScreen(reg.garmentAnchor);
-          anchorDx = g.x - mid.x;
-          anchorDy = g.y - mid.y;
-        }
-        return { errors, anchorDx, anchorDy, midShoulderScreen: mid };
-      })(),
+      registration: d
+        ? computeRegistration({
+            display: d,
+            mirrored: cameraManagerRef.current?.mirror.value === true,
+            raw: poseFrameRef.current.landmarks,
+            smoothed: {
+              left_shoulder: poseFrameRef.current.keypoints?.leftShoulder,
+              right_shoulder: poseFrameRef.current.keypoints?.rightShoulder,
+              left_hip: poseFrameRef.current.keypoints?.leftHip,
+              right_hip: poseFrameRef.current.keypoints?.rightHip,
+            },
+            projected: scene.registrationPixels(d),
+          })
+        : null,
       stage1: (() => {
         const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(...fit.bodyPose.quaternion), "YXZ");
         const deg = (r: number) => (r * 180) / Math.PI;

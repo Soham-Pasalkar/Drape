@@ -24,6 +24,8 @@ import {
 import { VideoDisplayTransform, imageToDisplay } from "@/lib/ar/coordinates";
 import type { GarmentDiagnostics } from "@/lib/ar/garment-instance";
 import type { DebugMaterialMode, OrientationProbe } from "@/lib/ar/debug/stage1-probe";
+import type { RegistrationReadout } from "@/lib/ar/debug/registration";
+export type { RegistrationReadout } from "@/lib/ar/debug/registration";
 
 export interface DiagnosticLayers {
   landmarks: boolean;
@@ -49,17 +51,6 @@ export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
   registration: true,
 };
 
-/** Stage-1b pixel registration: on-screen (post-CSS-flip) pixels. */
-export interface RegistrationReadout {
-  /** |cyan − magenta| per keypoint vs raw landmarks (what is drawn) and vs the smoothed
-   *  landmarks the solver used. null when the landmark is not visible (< 0.5). */
-  errors: Record<string, { raw: number; smoothed: number } | null>;
-  /** Garment anchor (rendered, smoothed pose) minus mid-shoulder (raw), on-screen px. */
-  anchorDx: number | null;
-  anchorDy: number | null;
-  /** Mid-shoulder position on screen, to tell centre / left / right / high / low apart. */
-  midShoulderScreen: { x: number; y: number } | null;
-}
 
 /** Stage-1 per-frame diagnosis readout (all values from live runtime objects). */
 export interface Stage1Readout {
