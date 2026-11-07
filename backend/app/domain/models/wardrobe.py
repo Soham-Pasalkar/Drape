@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -248,4 +249,108 @@ class OutfitItem(Base):
         "WardrobeItem",
         back_populates="outfit_associations",
     )
+
+
+class StylistPreferences(Base):
+    """Customer styling preferences for the DRAPE AI/Deterministic Stylist."""
+
+    __tablename__ = "stylist_preferences"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    style_direction: Mapped[str] = mapped_column(
+        String(64),
+        default="contemporary_minimal",
+        nullable=False,
+    )  # contemporary_minimal, classic_tailoring, relaxed_casual, avant_garde, monochrome
+    favorite_occasions: Mapped[List[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )  # casual, office, evening, formal, weekend
+    favorite_colors: Mapped[List[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )  # e.g. ["black", "navy", "white", "beige"]
+    excluded_colors: Mapped[List[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    preferred_season: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        default="all-season",
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship("User", backref="stylist_preferences")
+
+
+class OutfitFeedback(Base):
+    """Customer interaction and feedback on generated outfit recommendations."""
+
+    __tablename__ = "outfit_feedback"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    outfit_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("outfits.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    recommendation_hash: Mapped[Optional[str]] = mapped_column(
+        String(128),
+        index=True,
+        nullable=True,
+    )
+    action: Mapped[str] = mapped_column(
+        String(32),
+        index=True,
+        nullable=False,
+    )  # like, dislike, save, skip, worn
+    notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship("User", backref="outfit_feedback")
+    outfit: Mapped[Optional["Outfit"]] = relationship("Outfit")
+
 

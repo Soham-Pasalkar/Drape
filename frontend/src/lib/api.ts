@@ -1437,3 +1437,212 @@ export async function reorderOutfitItems(
   return await handleResponse<Outfit>(response);
 }
 
+// =============================================================================
+// SMART WARDROBE ANALYTICS & STYLIST ENGINE EXTENSIONS
+// =============================================================================
+
+export interface WardrobeStats {
+  total_items: number;
+  total_outfits: number;
+  by_category: Record<string, number>;
+  by_color: Record<string, number>;
+  by_occasion: Record<string, number>;
+  by_season: Record<string, number>;
+  recent_additions: WardrobeItem[];
+  try_on_ready_count: number;
+}
+
+export interface StylistPreferences {
+  id?: string;
+  user_id?: string;
+  style_direction: string;
+  favorite_occasions: string[];
+  favorite_colors: string[];
+  excluded_colors: string[];
+  preferred_season?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OutfitRecommendationItem {
+  role: string;
+  wardrobe_item: WardrobeItem;
+}
+
+export interface OutfitRecommendation {
+  id: string;
+  title: string;
+  occasion: string;
+  season: string;
+  score: number;
+  score_breakdown: {
+    category_compatibility: number;
+    color_harmony: number;
+    occasion_suitability: number;
+    preference_match: number;
+    novelty: number;
+  };
+  stylist_notes: string;
+  items: OutfitRecommendationItem[];
+  is_saved: boolean;
+  recommendation_hash: string;
+}
+
+export interface OutfitRecommendationListResponse {
+  occasion?: string | null;
+  total_generated: number;
+  recommendations: OutfitRecommendation[];
+}
+
+export interface OutfitFeedbackPayload {
+  outfit_id?: string | null;
+  recommendation_hash?: string | null;
+  action: "like" | "dislike" | "save" | "skip" | "worn";
+  notes?: string | null;
+}
+
+export interface OutfitFeedbackResponse {
+  success: boolean;
+  action: string;
+  message: string;
+  saved_outfit_id?: string | null;
+}
+
+export interface ComplementaryProduct {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  image_url?: string | null;
+  color: string;
+  colors: string[];
+  reason: string;
+  compatible_try_on: boolean;
+  product_slug: string;
+}
+
+export interface CompleteLookResponse {
+  missing_categories: string[];
+  owned_categories: string[];
+  total_owned: number;
+  suggestions: ComplementaryProduct[];
+}
+
+/**
+ * Get wardrobe analytics and counts.
+ */
+export async function getWardrobeStats(accessToken?: string | null): Promise<WardrobeStats> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/stats`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<WardrobeStats>(response);
+}
+
+/**
+ * Get styling preferences for the customer.
+ */
+export async function getStylistPreferences(accessToken?: string | null): Promise<StylistPreferences> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/preferences`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<StylistPreferences>(response);
+}
+
+/**
+ * Update styling preferences for the customer.
+ */
+export async function updateStylistPreferences(
+  payload: Partial<StylistPreferences>,
+  accessToken?: string | null
+): Promise<StylistPreferences> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/preferences`, {
+    method: "PUT",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse<StylistPreferences>(response);
+}
+
+/**
+ * Generate intelligent outfit recommendations from customer's wardrobe.
+ */
+export async function generateOutfitRecommendations(
+  params?: { occasion?: string; season?: string; limit?: number },
+  accessToken?: string | null
+): Promise<OutfitRecommendationListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.occasion) searchParams.set("occasion", params.occasion);
+  if (params?.season) searchParams.set("season", params.season);
+  if (params?.limit) searchParams.set("limit", params.limit.toString());
+  const queryString = searchParams.toString();
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/wardrobe/recommendations/generate${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "POST",
+      headers,
+      credentials: "include",
+    }
+  );
+  return await handleResponse<OutfitRecommendationListResponse>(response);
+}
+
+/**
+ * Submit feedback on an outfit recommendation (like, dislike, save, skip, worn).
+ */
+export async function submitOutfitFeedback(
+  payload: OutfitFeedbackPayload,
+  accessToken?: string | null
+): Promise<OutfitFeedbackResponse> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/recommendations/feedback`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse<OutfitFeedbackResponse>(response);
+}
+
+/**
+ * Get catalog gap analysis suggestions to complete user's wardrobe.
+ */
+export async function getCompleteLookRecommendations(
+  accessToken?: string | null
+): Promise<CompleteLookResponse> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/complete-look`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<CompleteLookResponse>(response);
+}
+

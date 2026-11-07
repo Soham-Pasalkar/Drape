@@ -450,6 +450,13 @@ async def verify_razorpay_payment(
         await clear_cart_for_user_or_guest(order, db)
         await db.commit()
 
+        # Automatic purchase ingestion into customer's smart wardrobe
+        try:
+            from app.api.v1.endpoints.wardrobe import ingest_order_items_to_wardrobe
+            await ingest_order_items_to_wardrobe(order, db)
+        except Exception as e:
+            logger.warning(f"Automatic wardrobe ingestion failed for order {order.id}: {e}")
+
     return PaymentVerificationResponse(
         success=True,
         order_id=order.id,
@@ -651,6 +658,13 @@ async def razorpay_webhook(
 
             await clear_cart_for_user_or_guest(order, db)
             await db.commit()
+
+            # Automatic purchase ingestion into customer's smart wardrobe
+            try:
+                from app.api.v1.endpoints.wardrobe import ingest_order_items_to_wardrobe
+                await ingest_order_items_to_wardrobe(order, db)
+            except Exception as e:
+                logger.warning(f"Automatic wardrobe ingestion failed for order {order.id}: {e}")
 
         return {"status": "ok", "message": "Order confirmed via webhook"}
 

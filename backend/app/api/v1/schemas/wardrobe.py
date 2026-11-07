@@ -153,3 +153,100 @@ class ImportPurchasesResponse(BaseModel):
     skipped_count: int
     items: List[WardrobeItemResponse]
 
+
+class WardrobeStatsResponse(BaseModel):
+    """Statistical summary of customer's digital wardrobe."""
+    total_items: int
+    total_outfits: int
+    by_category: dict[str, int]
+    by_color: dict[str, int]
+    by_occasion: dict[str, int]
+    by_season: dict[str, int]
+    recent_additions: List[WardrobeItemResponse]
+    try_on_ready_count: int
+
+
+class StylistPreferencesSchema(BaseModel):
+    """Customer styling preferences for the DRAPE Stylist."""
+    style_direction: str = Field("contemporary_minimal", max_length=64)
+    favorite_occasions: List[str] = Field(default_factory=lambda: ["casual", "office"])
+    favorite_colors: List[str] = Field(default_factory=lambda: ["black", "white", "navy", "beige"])
+    excluded_colors: List[str] = Field(default_factory=list)
+    preferred_season: Optional[str] = Field("all-season", max_length=50)
+
+
+class StylistPreferencesResponse(StylistPreferencesSchema):
+    """Preferences with persistence timestamps."""
+    id: str
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OutfitRecommendationItem(BaseModel):
+    """Individual garment within a generated outfit recommendation."""
+    role: str  # top, bottom, dress, outerwear, accessory
+    wardrobe_item: WardrobeItemResponse
+
+
+class OutfitRecommendationResponse(BaseModel):
+    """A generated, scored outfit recommendation with editorial rationale."""
+    id: str
+    title: str
+    occasion: str
+    season: str
+    score: float
+    score_breakdown: dict[str, float]
+    stylist_notes: str
+    items: List[OutfitRecommendationItem]
+    is_saved: bool = False
+    recommendation_hash: str
+
+
+class OutfitRecommendationListResponse(BaseModel):
+    """Collection of generated outfit recommendations."""
+    occasion: Optional[str] = None
+    total_generated: int
+    recommendations: List[OutfitRecommendationResponse]
+
+
+class OutfitFeedbackRequest(BaseModel):
+    """Customer interaction with an outfit recommendation."""
+    outfit_id: Optional[str] = None
+    recommendation_hash: Optional[str] = None
+    action: str = Field(..., description="'like', 'dislike', 'save', 'skip', or 'worn'")
+    notes: Optional[str] = None
+
+
+class OutfitFeedbackResponse(BaseModel):
+    """Response confirming feedback recording."""
+    success: bool
+    action: str
+    message: str
+    saved_outfit_id: Optional[str] = None
+
+
+class ComplementaryProductResponse(BaseModel):
+    """Product suggestion to complete the customer's look based on wardrobe gap analysis."""
+    id: str
+    name: str
+    category: str
+    price: float
+    image_url: Optional[str] = None
+    color: str
+    colors: List[str]
+    reason: str
+    compatible_try_on: bool
+    product_slug: str
+
+
+class CompleteLookResponse(BaseModel):
+    """Gap analysis and catalog recommendations to complete customer's wardrobe."""
+    missing_categories: List[str]
+    owned_categories: List[str]
+    total_owned: int
+    suggestions: List[ComplementaryProductResponse]
+
+

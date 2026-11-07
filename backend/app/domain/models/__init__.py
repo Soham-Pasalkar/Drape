@@ -2,7 +2,13 @@ from app.domain.models.identity import User, UserConsent, UserSession
 from app.domain.models.catalog import Product, ProductImage, ProductVariant, Inventory
 from app.domain.models.cart import Cart, CartItem
 from app.domain.models.order import Address, Order, OrderItem, Payment, OrderStatusHistory
-from app.domain.models.wardrobe import WardrobeItem, Outfit, OutfitItem
+from app.domain.models.wardrobe import (
+    WardrobeItem,
+    Outfit,
+    OutfitItem,
+    StylistPreferences,
+    OutfitFeedback,
+)
 
 __all__ = [
     "User",
@@ -22,4 +28,6 @@ __all__ = [
     "WardrobeItem",
     "Outfit",
     "OutfitItem",
+    "StylistPreferences",
+    "OutfitFeedback",
 ]
