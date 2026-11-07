@@ -21,6 +21,8 @@ export interface SessionHeader {
   schema: typeof SESSION_SCHEMA;
   createdAt: string;
   appCommit: string | null;
+  /** FrameStep PIPELINE_VERSION at recording time (absent in sessions recorded before it existed = 1). */
+  pipelineVersion?: number;
   userAgent: string;
   modelId: string;
   poseOptions: Record<string, number | string | boolean>;

@@ -55,7 +55,7 @@ import { PositionKey, SessionFile } from "@/lib/ar/session/schema";
 import { imageToDisplay } from "@/lib/ar/coordinates";
 import { ThreeSceneManager } from "@/lib/ar/three-scene";
 import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
-import { FrameStep } from "@/lib/ar/pipeline/frame-step";
+import { FrameStep, PIPELINE_VERSION } from "@/lib/ar/pipeline/frame-step";
 import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC } from "@/lib/ar/coordinates";
 import { computeRegistration } from "@/lib/ar/debug/registration";
 import { buildFrameDiag } from "@/lib/ar/debug/frame-diag";
@@ -104,7 +104,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const [framingMessage, setFramingMessage] = useState<string>("Optimal studio framing");
   const [isCalibrated, setIsCalibrated] = useState<boolean>(false);
   const [estimatedDistanceZ, setEstimatedDistanceZ] = useState<number | undefined>(undefined);
-  const [distanceMode, setDistanceMode] = useState<DistanceMode>("uninitialized");
+  const [distanceMode, setDistanceMode] = useState<DistanceMode>("approximate");
   const [landmarkConfidence, setLandmarkConfidence] = useState<number | undefined>(undefined);
   const [bodyMeasurements, setBodyMeasurements] = useState<BodyMeasurements | null>(null);
   const [garmentEase, setGarmentEase] = useState<GarmentEase | null>(null);
@@ -235,7 +235,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     setDiagnosticMetrics(null);
     setDisplayTransform(null);
     setEstimatedDistanceZ(undefined);
-    setDistanceMode("uninitialized");
+    setDistanceMode("approximate");
   }, []);
 
   useEffect(() => () => teardownAR(), [teardownAR]);
@@ -445,6 +445,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     const d = displayRef.current;
     const header: Record<string, unknown> = {
       appCommit: process.env.NEXT_PUBLIC_APP_COMMIT || "unknown",
+      pipelineVersion: PIPELINE_VERSION,
       userAgent: navigator.userAgent,
       mirror: cam?.mirror ?? null,
       trackSettings: cam?.trackSettings ?? null,
@@ -474,6 +475,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
         schema: "drape-ar-session/1",
         createdAt: new Date().toISOString(),
         appCommit: process.env.NEXT_PUBLIC_APP_COMMIT || null,
+        pipelineVersion: PIPELINE_VERSION,
         userAgent: navigator.userAgent,
         modelId: POSE_MODEL_ID,
         poseOptions: { ...POSE_OPTIONS },

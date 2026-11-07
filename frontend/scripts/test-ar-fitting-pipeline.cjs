@@ -20,7 +20,7 @@ const { GARMENTS, getGarmentById } = require('../dist_test/garment-registry.js')
 const { GarmentInstance } = require('../dist_test/garment-instance.js');
 const { MHRBodyProxy } = require('../dist_test/mhr-body-proxy.js');
 const { cameraToImage } = require('../dist_test/coordinates.js');
-const { DISTANCE_ESTIMATOR_CONFIG } = require('../dist_test/distance-estimator.js');
+const { POPULATION_SHOULDER_BREADTH_M } = require('../dist_test/distance-estimator.js');
 const { loadGLB } = require('./lib/glb-node-loader.cjs');
 
 const W = 1280, H = 720;
@@ -111,19 +111,26 @@ function step(rig, pose, noisePx = 0) {
 const run = (rig, pose, n, noise = 0) => { let r; for (let i = 0; i < n; i++) r = step(rig, pose, noise); return r; };
 const angleBetween = (qa, qb) => 2 * Math.acos(Math.min(1, Math.abs(qa.dot(qb))));
 const DEG = Math.PI / 180;
+// 2026-11-07 fix (item 2): depth uses a population shoulder-breadth prior W, so absolute camera-space positions are
+// the true ones scaled by W / B_subject (monocular scale ambiguity; pixels are unaffected).
+const SCALE = POPULATION_SHOULDER_BREADTH_M / SUBJECT.B;
 
-suite('Static subject at 1.5 m (reference initialization)');
+suite('Static subject at 1.5 m (instant depth, no calibration state)');
 {
   const rig = makeRig('tshirt-crewneck');
   const pose = { pos: new THREE.Vector3(0.05, -0.05, -1.5) };
   const early = run(rig, pose, 5);
-  test('first frames are explicitly uninitialized', () => assert(early.fit.distance.mode === 'uninitialized'));
-  const r = run(rig, pose, DISTANCE_ESTIMATOR_CONFIG.REFERENCE_WINDOW + 20);
-  test('reference initializes automatically → relative mode', () => assert(r.fit.distance.mode === 'relative', r.fit.distance.mode));
-  test('distance ≈ 1.5 m (world-landmark breadth prior matches the subject)', () => near(r.fit.distance.distanceM, 1.5, 0.02));
+  test('the first frames already carry a distance; mode is only an accuracy label', () => {
+    assert(early.fit.distance.mode === 'approximate', early.fit.distance.mode);
+    near(early.fit.distance.distanceM, 1.5 * SCALE, 0.03 * 1.5, 'early distance');
+  });
+  const r = run(rig, pose, 40);
+  test('mode stays "approximate" (never a blocking calibration state)', () => assert(r.fit.distance.mode === 'approximate', r.fit.distance.mode));
+  test('distance = true × W_prior / B_subject (± 2 %)', () => near(r.fit.distance.distanceM, 1.5 * SCALE, 0.02 * 1.5));
   test('PnP recovers position (< 1.5 cm) and rotation (< 1.5°)', () => {
     const p = new THREE.Vector3(...r.fit.bodyPose.position);
-    assert(p.distanceTo(pose.pos) < 0.015, `pos err ${(p.distanceTo(pose.pos) * 100).toFixed(2)} cm`);
+    const expected = pose.pos.clone().multiplyScalar(SCALE);
+    assert(p.distanceTo(expected) < 0.015, `pos err ${(p.distanceTo(expected) * 100).toFixed(2)} cm (vs scale-consistent truth)`);
     assert(angleBetween(new THREE.Quaternion(...r.fit.bodyPose.quaternion), new THREE.Quaternion()) < 1.5 * DEG);
   });
   test('reprojection error < 0.5 px on noise-free input', () => assert(r.fit.pnpResult.reprojectionError < 0.5, `${r.fit.pnpResult.reprojectionError}`));
@@ -153,8 +160,8 @@ suite('Moving closer / farther');
       const cur = -new THREE.Vector3(...rig.bodyRoot.position.toArray()).z;
       for (let i = 1; i <= 30; i++) step(rig, { pos: new THREE.Vector3(0, 0, -(cur + ((Z - cur) * i) / 30)) });
       const r = run(rig, { pos: new THREE.Vector3(0, 0, -Z) }, 30);
-      near(r.fit.distance.distanceM, Z, 0.03 * Z, 'distance');
-      near(-r.fit.bodyPose.position[2], Z, 0.03 * Z, 'PnP depth');
+      near(r.fit.distance.distanceM, Z * SCALE, 0.03 * Z, 'distance');
+      near(-r.fit.bodyPose.position[2], Z * SCALE, 0.03 * Z, 'PnP depth');
     });
   }
 }
@@ -170,7 +177,7 @@ suite('Turning left / right');
       const q = new THREE.Quaternion(...r.fit.bodyPose.quaternion);
       const err = angleBetween(q, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yawDeg * DEG, 0)));
       assert(err < 3 * DEG, `rotation error ${(err / DEG).toFixed(2)}°`);
-      near(r.fit.distance.distanceM, 1.5, 0.045);
+      near(r.fit.distance.distanceM, 1.5 * SCALE, 0.045);
       near(r.fit.tracking.yawRad, yawDeg * DEG, 2 * DEG, 'yaw estimate');
     });
   }
@@ -286,14 +293,15 @@ test('insufficient / degenerate landmarks are rejected instead of producing a po
   // The smoother rejects frames whose shoulders are invisible.
   assert(r.fit === null || r.fit.pnpResult.valid === false);
 });
-test('camera resolution change resets the distance reference', () => {
+test('camera resolution change resets the temporal depth state (no calibration state either side)', () => {
   const rig = makeRig('tshirt-crewneck');
   const r1 = run(rig, { pos: new THREE.Vector3(0, 0, -1.5) }, 40);
-  assert(r1.fit.distance.mode === 'relative');
+  assert(r1.fit.distance.mode === 'approximate');
   const f = synthFrame(rig.engine.calibrationManager.getIntrinsics(), { pos: new THREE.Vector3(0, 0, -1.5) });
   const kp = rig.smoother.process(f.raw, (rig.t += 33), f.world);
   const r2 = rig.engine.processFrame(kp, rig.meta, 640, 480);
-  assert(r2.distance.mode === 'uninitialized', r2.distance.mode);
+  assert(r2.distance.mode === 'approximate', r2.distance.mode);
+  near(r2.distance.distanceM, r2.distance.instantDistanceM, 1e-9, 'first sample after reset = instant estimate');
 });
 
 suite('60-second session (1800 frames @ 30 fps, 1.5 px noise, motion)');
@@ -322,7 +330,7 @@ test('no NaN, no drift, stable garment geometry, bounded simulation', () => {
   assert(spread < 0.02, `torso width varies by ${(spread * 100).toFixed(1)} cm (ballooning?)`);
   const d = rig.inst.diagnostics(rig.proxy, rig.bodyRoot, true);
   assert(d.simulation.maxStrainPct < 5, `strain ${d.simulation.maxStrainPct}`);
-  assert(!modes.has('uninitialized'), `modes ${[...modes]}`);
+  assert(modes.size === 1 && modes.has('approximate'), `modes ${[...modes]}`);
 });
 
 finish('test-ar-fitting-pipeline');

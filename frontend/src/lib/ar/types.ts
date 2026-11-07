@@ -167,13 +167,11 @@ export interface GarmentEase {
 }
 
 /**
- * Semantics of the current camera-to-body distance value.
- * - uninitialized: no stable reference yet; value is a provisional prior-based guess.
- * - relative:      Z(t) = Z0 * S0 / S(t) with Z0 anchored on an anthropometric prior.
- * - metric:        Z0 anchored on a user-supplied known distance.
- * - low_confidence: the current frame could not be measured (yaw / visibility); value held.
+ * Accuracy label of the distance value — never a state that gates motion (2026-11-07 fix, item 2).
+ * - approximate: Z = fx·W/S with W from a population prior (absolute scale unknown, motion exact up to scale).
+ * - metric:      W corrected by a metric anchor (known distance; later card / height / iris).
  */
-export type DistanceMode = 'uninitialized' | 'relative' | 'metric' | 'low_confidence';
+export type DistanceMode = 'approximate' | 'metric';
 
 export interface SimulationConfig {
   enabled: boolean;

@@ -1,15 +1,15 @@
 /**
- * Golden behaviour test (G3 amendment 1). Compares the CURRENT pipeline against
- * scripts/fixtures/golden-pre-refactor.json, generated at tag `m1-pre-refactor`.
- * Until T4 the current pipeline is driven by scripts/golden-pre-refactor.cjs; from T4 on, by the
- * refactored frame-step path. Tolerance: max |Δ| < 1e-6 on every number.
+ * Golden regression test. Compares the CURRENT pipeline against scripts/fixtures/golden.json.
+ * History: T2–T4 refactors were proven behaviour-identical against golden-pre-refactor.archived.json (tag
+ * m1-pre-refactor, max |Δ| = 0). Intended behaviour changes re-baseline golden.json via golden-rebaseline.cjs in the
+ * same commit, with the reason stored in the file. Tolerance: max |Δ| < 1e-6 on every number.
  */
 const fs = require('fs');
 const path = require('path');
 const { suite, test, assert, finish } = require('./lib/harness.cjs');
 const { makeFixture } = require('./lib/landmark-fixture.cjs');
 
-const GOLDEN = path.join(__dirname, 'fixtures', 'golden-pre-refactor.json');
+const GOLDEN = path.join(__dirname, 'fixtures', 'golden.json');
 const TOL = 1e-6;
 
 function maxDiff(a, b, where, acc) {
@@ -32,12 +32,14 @@ function maxDiff(a, b, where, acc) {
 }
 
 async function main() {
-  suite('Golden: current pipeline vs pre-refactor (m1-pre-refactor)');
+  suite('Golden: current pipeline vs scripts/fixtures/golden.json');
   if (!fs.existsSync(GOLDEN)) {
-    test('golden file present', () => assert(false, 'scripts/fixtures/golden-pre-refactor.json missing'));
+    test('golden file present', () => assert(false, 'scripts/fixtures/golden.json missing'));
     return finish('test-ar-golden');
   }
-  const golden = JSON.parse(fs.readFileSync(GOLDEN, 'utf8')).frames;
+  const gfile = JSON.parse(fs.readFileSync(GOLDEN, 'utf8'));
+  const golden = gfile.frames;
+  console.log(`      baseline: on top of ${gfile.rebaselinedOnTopOf} — ${gfile.reason}`);
   const { run } = require('./golden-current.cjs');
   const current = await run(makeFixture());
   test(`frame count matches (${golden.length})`, () => assert(current.length === golden.length, `${current.length}`));

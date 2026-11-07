@@ -478,7 +478,7 @@ export default function DeveloperDiagnosticOverlay({
           </Group>
 
           <Group title="Distance">
-            <Row k="Mode" v={m.distance.mode} warn={m.distance.mode !== "relative" && m.distance.mode !== "metric"} />
+            <Row k="Mode" v={m.distance.mode === "approximate" ? "approximate scale" : "metric"} />
             <Row k="Z" v={`${f(m.distance.distanceM, 3)} m`} />
             <Row k="Confidence" v={f(m.distance.confidence, 2)} />
             <Row k="Span raw/corr" v={`${f(m.distance.rawSpanPx, 1)} / ${f(m.distance.correctedSpanPx, 1)} px`} />

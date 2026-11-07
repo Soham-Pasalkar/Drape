@@ -54,7 +54,7 @@ export default function TrackingStatusBanner({
   operatingMode = "bust",
   isCalibrated = false,
   estimatedDistanceZ,
-  distanceMode = "uninitialized",
+  distanceMode = "approximate",
   ease,
 }: TrackingStatusBannerProps) {
   const isCameraActive =
@@ -129,10 +129,8 @@ export default function TrackingStatusBanner({
           <Maximize2 className="w-3 h-3 text-electric-blue" />
           <span className="text-[10px] tracking-wider uppercase font-medium">
             {modeLabels[operatingMode]}
-            {distanceMode === "uninitialized"
-              ? " • CALIBRATING DISTANCE"
-              : estimatedDistanceZ
-              ? ` • ≈${estimatedDistanceZ.toFixed(1)}m ${distanceMode === "metric" ? "" : "(REL.)"}`
+            {estimatedDistanceZ
+              ? ` • ≈${estimatedDistanceZ.toFixed(1)}m${distanceMode === "metric" ? "" : " (APPROX. SCALE)"}`
               : ""}
           </span>
         </div>
