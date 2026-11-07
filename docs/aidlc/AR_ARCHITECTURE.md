@@ -1,6 +1,6 @@
 # DRAPE AR Try-On — Architecture (gate G2)
 
-Status: **DRAFT — awaiting G2 approval** (lens review done; fixes applied). Implements `AR_REQUIREMENTS.md` (approved G1). Brownfield: changes are
+Status: **APPROVED at G2** (2026-11-07, "approved G2" + amendments 1, 2, 4 applied; 3, 5 in `AR_MILESTONES.md`). Implements `AR_REQUIREMENTS.md` (approved G1). Brownfield: changes are
 incremental extractions from today's code (`CODEBASE.md` §3), not a rewrite. Each item names the requirement it serves.
 
 ## 1. Principles
@@ -31,13 +31,20 @@ Untouched in M1–M2: garment instance, deformation, XPBD, body proxy, backend, 
 ```
 header: { schema: "drape-ar-session/1", createdAt, appCommit, userAgent, modelId, poseOptions,
           trackSettings: { width, height, frameRate, facingMode|null },   // deviceId/groupId never recorded
-          mirror: { value: bool, source: "getSettings"|"requested-assumed" }, garmentId, calibration: K }
+          mirror: { value: bool, source: "getSettings"|"requested-assumed" }, garmentId, calibration: K,
+          video: { objectFit, objectPosition } }   // getComputedStyle of the <video>
 frames[]: { t: perf.now ms, mediaTime, video: {w,h}, container: {w,h}, dpr, displayMode: "live"|"inferred",
-            presentedMediaTime, raw: [33 × {x,y,z,v,p}], world: [33 × {x,y,z,v}],
+            presentedMediaTime,
+            render: { canvasClient: {w,h}, canvasBuffer: {w,h}, drawingBuffer: {w,h}, rendererPixelRatio,
+                      dpr, wrapperTransform: getComputedStyle(mirror wrapper).transform },   // per frame: resizes happen
+            raw: [33 × {x,y,z,v,p}], world: [33 × {x,y,z,v}],
             out: { pose{pos,quat,valid,reason,reprojPx,usedPoints[]}, pnpKeypointsCam{4},
                    smoothedRoot{pos,quat}, registration{err{4}, anchorDxDy, midShoulder}, distance{z,mode},
                    timings{inferMs,fitMs,renderMs} } }
-images[] (opt-in): { frameIndex, png: data-URL, 320 px wide composite } — max 1 per second
+images[] (opt-in, debug only): { frameIndex, png } — max 1 per second, 320 px wide. Composite = the displayed video
+  frame (live or inferred, per toggle) + the WebGL canvas + the 2D overlay (registration dots), all captured in the
+  same tick, immediately after `renderer.render()` (drawing buffer still valid, no preserveDrawingBuffer), then
+  mirrored with the same CSS transform so the PNG matches what is on screen.
 ```
 Size ≈ 3 KB/frame → ~5 MB per 60 s at 30 fps (+ ≈ 3.6 MB/min with images). Contains no account data, cookies,
 tokens, names, e-mail or location; no device id. Created only after an explicit click; download via object URL.
@@ -53,7 +60,8 @@ Positions are labelled by the user via hotkeys during recording (§5), not infer
 ## 5. Recording UX (diagnostics HUD)
 `● Record` / `■ Stop & save` buttons, an elapsed timer, a "include snapshots" checkbox (off by default) and
 position hotkeys **1–8** (centre, far left, far right, high, low, closer, farther, hips out of frame) that stamp the
-current segment into the file. Recording auto-stops at 120 s.
+current segment into the file. Hotkeys (and the existing **D** toggle) are ignored while focus is in an input,
+textarea, select or contenteditable element. Recording auto-stops at 120 s.
 
 ## 6. Cross-cutting
 - **Privacy (NFR-03):** recorder has no network path; verified with a CDP network log during a recording in M1.

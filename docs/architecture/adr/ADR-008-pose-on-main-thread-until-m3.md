@@ -1,6 +1,6 @@
 # ADR-008: Pose inference stays on the main thread until after M3 (amends ADR-004)
 
-- Status: Proposed (G2, 2026-11-07)
+- Status: Accepted (G2 approved 2026-11-07)
 - Amends: ADR-004 (client-side Web Worker isolation with MediaPipe Pose)
 
 ## Context
