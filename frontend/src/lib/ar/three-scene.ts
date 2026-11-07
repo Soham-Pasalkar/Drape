@@ -111,6 +111,8 @@ export class ThreeSceneManager {
   private accel = new THREE.Vector3();
 
   private projectionKey = '';
+  private currentDisplay: VideoDisplayTransform | null = null;
+  private currentIntrinsics: CameraIntrinsics | null = null;
   private isDisposed = false;
   private contextLost = false;
   private lastRenderTime: number | null = null;
@@ -209,6 +211,8 @@ export class ThreeSceneManager {
    * nothing changed; call every frame.
    */
   setProjection(K: CameraIntrinsics, display: VideoDisplayTransform, near = 0.05, far = 20): void {
+    this.currentIntrinsics = K;
+    this.currentDisplay = display;
     const key = [K.fx, K.fy, K.cx, K.cy, display.containerWidth, display.containerHeight, display.scaleX, display.scaleY, display.offsetX, display.offsetY, near, far]
       .map((v) => v.toFixed(4))
       .join('|');
@@ -660,7 +664,7 @@ export class ThreeSceneManager {
   getDiagnostics(): SceneDiagnostics {
     const info = this.renderer?.info.render;
     return {
-      garment: this.active ? this.active.diagnostics(this.bodyProxy, this.bodyRoot, this.tracking, this.camera) : null,
+      garment: this.active ? this.active.diagnostics(this.bodyProxy, this.bodyRoot, this.tracking, this.camera, this.currentDisplay) : null,
       renderMs: this.lastRenderMs,
       garmentUpdateMs: this.lastGarmentMs,
       contextLost: this.contextLost,

@@ -184,6 +184,7 @@ export default function CameraViewport({
           rawLandmarks={rawLandmarks}
           display={displayTransform}
           layers={diagnosticLayers}
+          garment={diagnosticMetrics?.garment ?? null}
         />
       </div>
 

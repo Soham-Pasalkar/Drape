@@ -38,6 +38,7 @@ export interface DiagnosticLayers {
   collisionNormals: boolean;
   axesGizmo: boolean;
   registration: boolean;
+  necklineForensics: boolean;
 }
 
 export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
@@ -50,6 +51,7 @@ export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
   collisionNormals: false,
   axesGizmo: true,
   registration: true,
+  necklineForensics: true,
 };
 
 
@@ -182,11 +184,13 @@ export function DiagnosticCanvasLayer({
   rawLandmarks,
   display,
   layers,
+  garment,
 }: {
   active: boolean;
   rawLandmarks: LandmarkPoint[];
   display: VideoDisplayTransform | null;
   layers: DiagnosticLayers;
+  garment?: GarmentDiagnostics | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -269,7 +273,138 @@ export function DiagnosticCanvasLayer({
         ctx.fillRect((p.x + q.x) / 2 - 3, (p.y + q.y) / 2 - 3, 6, 6);
       }
     }
-  }, [active, rawLandmarks, display, layers]);
+
+    if (layers.necklineForensics) {
+      // 1. Landmark shoulders & mid-shoulder
+      if (vis(11) && vis(12)) {
+        const p11 = toCss(rawLandmarks[11]);
+        const p12 = toCss(rawLandmarks[12]);
+        const smx = (p11.x + p12.x) / 2;
+        const smy = (p11.y + p12.y) / 2;
+
+        // Shoulder joint line (dashed cyan)
+        ctx.strokeStyle = "rgba(0, 224, 255, 0.6)";
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p11.x, p11.y);
+        ctx.lineTo(p12.x, p12.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Mid-shoulder crosshair
+        ctx.strokeStyle = "#00E0FF";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(smx - 6, smy); ctx.lineTo(smx + 6, smy);
+        ctx.moveTo(smx, smy - 6); ctx.lineTo(smx, smy + 6);
+        ctx.stroke();
+      }
+
+      const nl = garment?.neckline;
+      if (nl) {
+        // 2. Collar Endpoints & curve preview line
+        if (nl.collarLeftEndpointScreenPx && nl.collarRightEndpointScreenPx && nl.collarCenterScreenPx) {
+          const cl = { x: nl.collarLeftEndpointScreenPx[0], y: nl.collarLeftEndpointScreenPx[1] };
+          const cr = { x: nl.collarRightEndpointScreenPx[0], y: nl.collarRightEndpointScreenPx[1] };
+          const cc = { x: nl.collarCenterScreenPx[0], y: nl.collarCenterScreenPx[1] };
+
+          // Collar curve preview line (emerald)
+          ctx.strokeStyle = "rgba(16, 185, 129, 0.8)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(cl.x, cl.y);
+          ctx.quadraticCurveTo(cc.x, cc.y, cr.x, cr.y);
+          ctx.stroke();
+
+          // Left & Right Endpoint Dots
+          for (const [pt, label] of [[cl, "COLLAR L"], [cr, "COLLAR R"]] as const) {
+            ctx.fillStyle = "#00FFFF";
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = "9px monospace";
+            ctx.fillStyle = "#00FFFF";
+            ctx.fillText(label, pt.x + 5, pt.y - 2);
+          }
+        }
+
+        // 3. Shoulder Seam Anchor
+        if (nl.shoulderSeamAnchorScreenPx) {
+          const sa = { x: nl.shoulderSeamAnchorScreenPx[0], y: nl.shoulderSeamAnchorScreenPx[1] };
+          ctx.fillStyle = "#E040FB";
+          ctx.beginPath();
+          ctx.arc(sa.x, sa.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = "9px monospace";
+          ctx.fillStyle = "#E040FB";
+          ctx.fillText("SEAM ANCHOR", sa.x + 6, sa.y + 3);
+        }
+
+        // 4. Rendered Collar Center
+        if (nl.collarCenterScreenPx) {
+          const cc = { x: nl.collarCenterScreenPx[0], y: nl.collarCenterScreenPx[1] };
+          // Emerald ring + dot
+          ctx.strokeStyle = "#10B981";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(cc.x, cc.y, 6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.fillStyle = "#10B981";
+          ctx.beginPath();
+          ctx.arc(cc.x, cc.y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = "bold 9px monospace";
+          ctx.fillStyle = "#10B981";
+          ctx.fillText("COLLAR CTR", cc.x + 8, cc.y + 3);
+        }
+
+        // 5. Anatomical Neck Base Reference
+        if (nl.anatomicalNeckBaseScreenPx) {
+          const nb = { x: nl.anatomicalNeckBaseScreenPx[0], y: nl.anatomicalNeckBaseScreenPx[1] };
+          // Amber/Gold ring + crosshair
+          ctx.strokeStyle = "#F59E0B";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(nb.x, nb.y, 6, 0, Math.PI * 2);
+          ctx.moveTo(nb.x - 9, nb.y); ctx.lineTo(nb.x + 9, nb.y);
+          ctx.moveTo(nb.x, nb.y - 9); ctx.lineTo(nb.x, nb.y + 9);
+          ctx.stroke();
+          ctx.font = "bold 9px monospace";
+          ctx.fillStyle = "#F59E0B";
+          ctx.fillText("ANAT NECK BASE", nb.x + 10, nb.y + 3);
+        }
+
+        // 6. Vertical Error Line and Badge
+        if (nl.collarCenterScreenPx && nl.anatomicalNeckBaseScreenPx) {
+          const cc = { x: nl.collarCenterScreenPx[0], y: nl.collarCenterScreenPx[1] };
+          const nb = { x: nl.anatomicalNeckBaseScreenPx[0], y: nl.anatomicalNeckBaseScreenPx[1] };
+          const dyPx = cc.y - nb.y;
+          const dyMm = nl.worldVerticalErrorMm ?? nl.necklineVerticalDeltaMm;
+
+          ctx.strokeStyle = Math.abs(dyPx) > 5 ? "#EF4444" : "#10B981";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(nb.x, nb.y);
+          ctx.lineTo(cc.x, cc.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Badge
+          const midX = (nb.x + cc.x) / 2 + 10;
+          const midY = (nb.y + cc.y) / 2;
+          const badgeText = `ΔY: ${dyPx >= 0 ? "+" : ""}${dyPx.toFixed(1)} px (${dyMm >= 0 ? "+" : ""}${dyMm.toFixed(1)} mm)`;
+          ctx.font = "bold 9px monospace";
+          const tw = ctx.measureText(badgeText).width;
+          ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+          ctx.fillRect(midX - 2, midY - 8, tw + 4, 12);
+          ctx.fillStyle = Math.abs(dyPx) > 5 ? "#F87171" : "#34D399";
+          ctx.fillText(badgeText, midX, midY + 1);
+        }
+      }
+    }
+  }, [active, rawLandmarks, display, layers, garment]);
 
   return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-30" />;
 }
@@ -327,6 +462,7 @@ export default function DeveloperDiagnosticOverlay({
     ["collisionNormals", "Collision normals"],
     ["axesGizmo", "Axes + F"],
     ["registration", "Registration"],
+    ["necklineForensics", "Neck forensics"],
   ];
   const MODES: [DebugMaterialMode, string][] = [
     ["normal", "Mat: normal"],
@@ -545,6 +681,62 @@ export default function DeveloperDiagnosticOverlay({
                 warn={m.garment.simulation.state === "disabled"}
               />
               <Row k="Meshes" v={m.garment.meshes.map((x) => `${x.name}:${x.role}`).join(" ")} />
+            </Group>
+          )}
+
+          {m.garment?.neckline && (
+            <Group title="Neckline Forensics (M0.10)">
+              <Row
+                k="Collar vs Anat Base"
+                v={`${f(m.garment.neckline.worldVerticalErrorMm ?? m.garment.neckline.necklineVerticalDeltaMm, 1)} mm (${f(m.garment.neckline.screenVerticalErrorPx, 1)} px)`}
+                warn={Math.abs(m.garment.neckline.screenVerticalErrorPx ?? 10) > 5}
+              />
+              <Row k="Anat Base (Body)" v={v3(m.garment.neckline.anatomicalNeckBaseBody)} />
+              <Row k="Anat Base (World)" v={v3(m.garment.neckline.anatomicalNeckBaseWorld)} />
+              <Row
+                k="Anat Base (Screen)"
+                v={
+                  m.garment.neckline.anatomicalNeckBaseScreenPx
+                    ? `[${f(m.garment.neckline.anatomicalNeckBaseScreenPx[0], 1)}, ${f(m.garment.neckline.anatomicalNeckBaseScreenPx[1], 1)}] px`
+                    : "—"
+                }
+              />
+              <Row k="Collar Rest (GLB)" v={v3(m.garment.neckline.rawCollarLocal)} />
+              <Row k="Collar Local (G)" v={v3(m.garment.neckline.garmentNecklineLocal)} />
+              <Row k="Collar Center (B)" v={v3(m.garment.neckline.garmentNecklineBodyLocal)} />
+              <Row k="Collar Center (W)" v={v3(m.garment.neckline.collarCenterWorld)} />
+              <Row
+                k="Collar Center (Scr)"
+                v={
+                  m.garment.neckline.collarCenterScreenPx
+                    ? `[${f(m.garment.neckline.collarCenterScreenPx[0], 1)}, ${f(m.garment.neckline.collarCenterScreenPx[1], 1)}] px`
+                    : "—"
+                }
+              />
+              <Row
+                k="Collar L / R (Scr)"
+                v={
+                  m.garment.neckline.collarLeftEndpointScreenPx && m.garment.neckline.collarRightEndpointScreenPx
+                    ? `L:[${f(m.garment.neckline.collarLeftEndpointScreenPx[0], 0)},${f(m.garment.neckline.collarLeftEndpointScreenPx[1], 0)}] R:[${f(m.garment.neckline.collarRightEndpointScreenPx[0], 0)},${f(m.garment.neckline.collarRightEndpointScreenPx[1], 0)}]`
+                    : "—"
+                }
+              />
+              <Row
+                k="Seam Anchor (Scr)"
+                v={
+                  m.garment.neckline.shoulderSeamAnchorScreenPx
+                    ? `[${f(m.garment.neckline.shoulderSeamAnchorScreenPx[0], 1)}, ${f(m.garment.neckline.shoulderSeamAnchorScreenPx[1], 1)}] px`
+                    : "—"
+                }
+              />
+              <Row
+                k="Coord & Scale"
+                v={`Scale ${v3(m.garment.scale, 3)} · Offset ${f((m.garment.neckline.appliedOffsetY ?? 0) * 1000, 1)} mm`}
+              />
+              <Row
+                k="Units"
+                v="GLB/Body/World: metres · Screen: container CSS px"
+              />
             </Group>
           )}
 

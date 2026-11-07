@@ -54,11 +54,13 @@ export interface BodyShape {
 export const BODY_PROXY_PRIORS = {
   NECK_ABOVE_SHOULDER_M: 0.12,
   /**
-   * Approximate vertical distance from shoulder joint line to the suprasternal notch (base of neck).
-   * In standard human proportions, the clavicles drop ~4.5 cm from the acromion / glenohumeral joint
-   * to the jugular notch of the manubrium sterni on the anterior midline.
-   * This is a documented geometric reference for neckline fit telemetry, NOT an anatomically measured landmark.
+   * Anatomical elevation ratio of the suprasternal notch (base of neck) above the glenohumeral
+   * shoulder-joint line, scaled by shoulder breadth. On an upright human, the jugular notch of the
+   * manubrium sterni sits ~10.5% of shoulder breadth (~38 mm for a 36 cm breadth) above the
+   * acromion joint level on the anterior midline.
    */
+  NECK_BASE_ABOVE_SHOULDER_RATIO: 0.105,
+  /** @deprecated Legacy prior from M0.8 that incorrectly placed the neck base 4.5 cm down on the chest. */
   NECK_BASE_BELOW_SHOULDER_M: 0.045,
   NECK_RADIUS_M: { a: 0.065, b: 0.06 },
   SHOULDER_SOFT_TISSUE_M: 0.05,
@@ -234,8 +236,8 @@ export class MHRBodyProxy {
         return out.set(0, this.sections[0].y, 0);
       case 'base_of_neck': {
         const yS = this.shape.torsoLengthM / 2;
-        const yBase = yS - BODY_PROXY_PRIORS.NECK_BASE_BELOW_SHOULDER_M;
-        const zFront = this.sections[1].semiMinorB;
+        const yBase = yS + this.shape.shoulderBreadthM * BODY_PROXY_PRIORS.NECK_BASE_ABOVE_SHOULDER_RATIO;
+        const zFront = this.sections[1].semiMinorB * 0.75;
         return out.set(0, yBase, zFront);
       }
       case 'waist_center':

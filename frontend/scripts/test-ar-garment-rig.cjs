@@ -27,7 +27,7 @@ const {
   bodyDirToGarment,
 } = require('../dist_test/garment-rig.js');
 const { GarmentInstance } = require('../dist_test/garment-instance.js');
-const { MHRBodyProxy } = require('../dist_test/mhr-body-proxy.js');
+const { MHRBodyProxy, BODY_PROXY_PRIORS } = require('../dist_test/mhr-body-proxy.js');
 
 const GDIR = path.join(__dirname, '..', 'public', 'garments');
 
@@ -123,9 +123,10 @@ test('base-of-neck diagnostic reference and signed displacement convention', () 
   const topOfNeck = proxy.getAttachmentAnchor('neckline_center');
   const shoulder = proxy.getAttachmentAnchor('shoulder_center');
 
-  // Base of neck sits below shoulder line by ~4.5 cm
-  near(shoulder.y - baseOfNeck.y, 0.045, 1e-6, 'base of neck is 4.5 cm below shoulder line');
-  assert(topOfNeck.y > shoulder.y, 'top of neck sits above shoulder line');
+  // M0.10: Base of neck (suprasternal notch) sits ~10.5% shoulderBreadth (~37.8 mm for 36 cm breadth) ABOVE the glenohumeral shoulder line
+  const expectedElevation = proxy.shape.shoulderBreadthM * BODY_PROXY_PRIORS.NECK_BASE_ABOVE_SHOULDER_RATIO;
+  near(baseOfNeck.y - shoulder.y, expectedElevation, 1e-6, `base of neck is ${(expectedElevation * 1000).toFixed(1)} mm above shoulder line`);
+  assert(topOfNeck.y > baseOfNeck.y, 'top of neck sits above base of neck');
 
   // Verify signed convention:
   // positive = garment collar is above base of neck
@@ -150,10 +151,68 @@ test('base-of-neck diagnostic reference and signed displacement convention', () 
   });
 
   const diag = inst.diagnostics(proxy, root, true);
-  // With +51 mm offset, the collar sits ~37 mm above the suprasternal notch (at the natural base of the neck):
-  // signed delta is in the natural crewneck range (+25 to +45 mm)
-  assert(diag.neckline.necklineVerticalDeltaMm > 25 && diag.neckline.necklineVerticalDeltaMm < 45,
-    `necklineVerticalDeltaMm within natural collar band (+25 to +45 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
+  // M0.10 forensic finding: with frozen M0.9 geometry (+51 mm offset applied to the raw collar which dipped 60 mm below shoulder seams),
+  // the collar center in body space sits at y = 0.2421 m, while baseOfNeck sits at y = 0.2878 m.
+  // Therefore the rendered collar center sits ~45.7 mm BELOW the true suprasternal notch:
+  // signed delta is negative (-50 to -40 mm), proving mathematically why the collar dips on the chest!
+  assert(Number.isFinite(diag.neckline.necklineVerticalDeltaMm), 'necklineVerticalDeltaMm is finite');
+  assert(diag.neckline.necklineVerticalDeltaMm < 0,
+    `demonstrates collar sits below anatomical suprasternal notch (got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm)`);
+  near(diag.neckline.necklineVerticalDeltaMm, -45.7, 1.0,
+    `necklineVerticalDeltaMm matches forensic calculation (-45.7 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
+});
+
+test('M0.10 coordinate transformation chain and screen-space forensics audit', () => {
+  const proxy = new MHRBodyProxy();
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const sim = JSON.parse(fs.readFileSync(path.join(GDIR, meta.id, 'simulation-data.json'), 'utf8'));
+  const inst = new GarmentInstance(scene, meta, sim);
+  const root = new THREE.Group();
+  root.add(proxy.group);
+  inst.attach(root);
+
+  // Position bodyRoot at camera space origin looking at (0, 0, -1.8 m)
+  root.position.set(0, 0, -1.8);
+
+  inst.update({
+    bodyProxy: proxy,
+    bodyRoot: root,
+    dt: 1 / 60,
+    nowMs: 1000,
+    armDirsBody: { left: null, right: null },
+    targetScale: new THREE.Vector3(1, 1, 1),
+    tracking: true,
+    frameAccelWorld: new THREE.Vector3(),
+  });
+
+  const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.05, 20);
+  camera.position.set(0, 0, 0);
+  camera.updateMatrixWorld(true);
+
+  const display = {
+    videoWidth: 1280,
+    videoHeight: 720,
+    containerWidth: 960,
+    containerHeight: 540,
+    scaleX: 1,
+    scaleY: 1,
+    offsetX: 0,
+    offsetY: 0,
+  };
+
+  const diag = inst.diagnostics(proxy, root, true, camera, display);
+  assert(diag.neckline.rawCollarLocal !== undefined, 'exposes raw collar local coordinates');
+  assert(diag.neckline.collarCenterWorld !== undefined, 'exposes collar center world coordinates');
+  assert(diag.neckline.anatomicalNeckBaseWorld !== undefined, 'exposes anatomical neck base world coordinates');
+  assert(diag.neckline.collarCenterScreenPx !== undefined, 'exposes collar center screen pixels');
+  assert(diag.neckline.anatomicalNeckBaseScreenPx !== undefined, 'exposes anatomical neck base screen pixels');
+  assert(diag.neckline.screenVerticalErrorPx !== undefined, 'exposes screen vertical error in px');
+  assert(diag.neckline.coordinateMetadata !== undefined, 'exposes coordinate metadata');
+
+  // Verify collar screen Y is greater than anatomical neck base screen Y (meaning collar renders lower on screen in CSS pixels)
+  assert(diag.neckline.collarCenterScreenPx[1] > diag.neckline.anatomicalNeckBaseScreenPx[1],
+    `collar center screen Y (${diag.neckline.collarCenterScreenPx[1].toFixed(1)}) is lower on screen than neck base (${diag.neckline.anatomicalNeckBaseScreenPx[1].toFixed(1)})`);
 });
 
 test('collar normal recalculation and simulation rest consistency', () => {

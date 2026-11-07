@@ -17,6 +17,7 @@
 
 import * as THREE from 'three';
 import { GarmentMetadata } from './types';
+import type { VideoDisplayTransform } from './coordinates';
 import { MHRBodyProxy } from './mhr-body-proxy';
 import {
   computeSemanticAnchor,
@@ -156,6 +157,43 @@ export interface GarmentDiagnostics {
     appliedOffsetY: number;
     effectiveWorldOffsetMm: number;
     garmentId: string;
+    // --- M0.10 Neckline Forensics Fields ---
+    /** Raw GLB vertex coordinate of collar center before deformation / offset (metres). */
+    rawCollarLocal?: [number, number, number];
+    /** 3D world coordinate of front-center collar point (metres). */
+    collarCenterWorld?: [number, number, number];
+    /** 3D world coordinate of collar left endpoint (metres). */
+    collarLeftEndpointWorld?: [number, number, number];
+    /** 3D world coordinate of collar right endpoint (metres). */
+    collarRightEndpointWorld?: [number, number, number];
+    /** 3D world coordinate of shoulder seam anchor (metres). */
+    shoulderSeamAnchorWorld?: [number, number, number];
+    /** 3D body-space coordinate of anatomical neck-base reference (metres). */
+    anatomicalNeckBaseBody?: [number, number, number];
+    /** 3D world coordinate of anatomical neck-base reference (metres). */
+    anatomicalNeckBaseWorld?: [number, number, number];
+    /** Projected 2D screen coordinate of collar center [x, y] in container CSS pixels. */
+    collarCenterScreenPx?: [number, number];
+    /** Projected 2D screen coordinate of collar left endpoint [x, y] in container CSS pixels. */
+    collarLeftEndpointScreenPx?: [number, number];
+    /** Projected 2D screen coordinate of collar right endpoint [x, y] in container CSS pixels. */
+    collarRightEndpointScreenPx?: [number, number];
+    /** Projected 2D screen coordinate of shoulder seam anchor [x, y] in container CSS pixels. */
+    shoulderSeamAnchorScreenPx?: [number, number];
+    /** Projected 2D screen coordinate of anatomical neck base [x, y] in container CSS pixels. */
+    anatomicalNeckBaseScreenPx?: [number, number];
+    /** Screen-space vertical difference: collarCenter.y - anatomicalNeckBase.y (px, positive = collar rendered lower on screen). */
+    screenVerticalErrorPx?: number;
+    /** World-space vertical difference: (collarCenter.y - anatomicalNeckBase.y) * 1000 (mm, positive = collar above reference). */
+    worldVerticalErrorMm?: number;
+    /** Coordinate spaces and scales metadata. */
+    coordinateMetadata?: {
+      garmentLocalUnits: string;
+      bodyLocalUnits: string;
+      worldUnits: string;
+      screenUnits: string;
+      wrapperScale: [number, number, number];
+    };
   };
 }
 
@@ -192,6 +230,7 @@ export class GarmentInstance {
   readonly gltfRoot: THREE.Object3D;
   readonly anchor: SemanticAnchorResult;
   readonly neckline: THREE.Vector3;
+  readonly rawNeckline: THREE.Vector3;
   readonly collarLeftEndpoint?: THREE.Vector3;
   readonly collarRightEndpoint?: THREE.Vector3;
   readonly collarCurveVertexCount?: number;
@@ -245,7 +284,8 @@ export class GarmentInstance {
     }
 
     // Neckline reference from geometry or anchor
-    this.neckline = this.anchor.neckline ? this.anchor.neckline.clone() : this.anchor.anchor.clone();
+    this.rawNeckline = this.anchor.neckline ? this.anchor.neckline.clone() : this.anchor.anchor.clone();
+    this.neckline = this.rawNeckline.clone();
     this.collarLeftEndpoint = this.anchor.collarLeftEndpoint?.clone();
     this.collarRightEndpoint = this.anchor.collarRightEndpoint?.clone();
     this.collarCurveVertexCount = this.anchor.collarCurveVertexCount;
@@ -777,7 +817,13 @@ export class GarmentInstance {
 
   // ------------------------------------------------------------------------- diagnostics
 
-  diagnostics(proxy: MHRBodyProxy, bodyRoot: THREE.Object3D, tracking: boolean, camera?: THREE.PerspectiveCamera): GarmentDiagnostics {
+  diagnostics(
+    proxy: MHRBodyProxy,
+    bodyRoot: THREE.Object3D,
+    tracking: boolean,
+    camera?: THREE.PerspectiveCamera,
+    display?: VideoDisplayTransform | null
+  ): GarmentDiagnostics {
     const bodyAnchor = proxy.getAttachmentAnchor(this.metadata.modelAnchor.type);
     const worldG = this.anchorGroup.localToWorld(this.anchor.anchor.clone());
     const worldB = bodyRoot.localToWorld(bodyAnchor.clone());
@@ -808,15 +854,53 @@ export class GarmentInstance {
     const appliedOffsetY = this.metadata.fittingProfile?.necklineOffsetY ?? 0;
     const effectiveWorldOffsetMm = appliedOffsetY * this.currentScale.y * 1000;
 
+    const projectToScreen = (worldPt: THREE.Vector3): [number, number] | undefined => {
+      if (!camera) return undefined;
+      const v = worldPt.clone().project(camera);
+      const w = display?.containerWidth ?? 960;
+      const h = display?.containerHeight ?? 540;
+      const sx = (v.x * 0.5 + 0.5) * w;
+      const sy = (-v.y * 0.5 + 0.5) * h;
+      return [sx, sy];
+    };
+
+    let worldGNeck: THREE.Vector3 | undefined;
+    let worldBBase: THREE.Vector3 | undefined;
+    let worldGLeft: THREE.Vector3 | undefined;
+    let worldGRight: THREE.Vector3 | undefined;
+    let worldGAnchor: THREE.Vector3 | undefined;
+    let collarCenterScreenPx: [number, number] | undefined;
+    let collarLeftEndpointScreenPx: [number, number] | undefined;
+    let collarRightEndpointScreenPx: [number, number] | undefined;
+    let shoulderSeamAnchorScreenPx: [number, number] | undefined;
+    let anatomicalNeckBaseScreenPx: [number, number] | undefined;
+    let screenVerticalErrorPx: number | undefined;
+
     if (this.neckline) {
-      const worldGNeck = this.anchorGroup.localToWorld(this.neckline.clone());
+      worldGNeck = this.anchorGroup.localToWorld(this.neckline.clone());
       const bodyGNeck = bodyRoot.worldToLocal(worldGNeck.clone());
       garmentNecklineBodyLocal = t3(bodyGNeck);
       // Signed vertical delta: positive = garment neckline sits above body base-of-neck reference; negative = below.
       necklineVerticalDeltaMm = (bodyGNeck.y - bodyBaseOfNeck.y) * 1000;
 
-      const worldBBase = bodyRoot.localToWorld(bodyBaseOfNeck.clone());
+      worldBBase = bodyRoot.localToWorld(bodyBaseOfNeck.clone());
       necklineDispMm = worldGNeck.distanceTo(worldBBase) * 1000;
+
+      worldGAnchor = this.anchorGroup.localToWorld(this.anchor.anchor.clone());
+      if (this.collarLeftEndpoint) worldGLeft = this.anchorGroup.localToWorld(this.collarLeftEndpoint.clone());
+      if (this.collarRightEndpoint) worldGRight = this.anchorGroup.localToWorld(this.collarRightEndpoint.clone());
+
+      collarCenterScreenPx = projectToScreen(worldGNeck);
+      anatomicalNeckBaseScreenPx = projectToScreen(worldBBase);
+      shoulderSeamAnchorScreenPx = projectToScreen(worldGAnchor);
+      if (worldGLeft) collarLeftEndpointScreenPx = projectToScreen(worldGLeft);
+      if (worldGRight) collarRightEndpointScreenPx = projectToScreen(worldGRight);
+
+      if (collarCenterScreenPx && anatomicalNeckBaseScreenPx) {
+        // In screen CSS coordinates (+Y down), positive delta means collar is lower on screen than neck base.
+        screenVerticalErrorPx = collarCenterScreenPx[1] - anatomicalNeckBaseScreenPx[1];
+      }
+
       if (camera) {
         const vG = worldGNeck.project(camera);
         const vB = worldBBase.project(camera);
@@ -888,6 +972,27 @@ export class GarmentInstance {
             appliedOffsetY,
             effectiveWorldOffsetMm,
             garmentId: this.metadata.id,
+            rawCollarLocal: t3(this.rawNeckline),
+            collarCenterWorld: worldGNeck ? t3(worldGNeck) : undefined,
+            collarLeftEndpointWorld: worldGLeft ? t3(worldGLeft) : undefined,
+            collarRightEndpointWorld: worldGRight ? t3(worldGRight) : undefined,
+            shoulderSeamAnchorWorld: worldGAnchor ? t3(worldGAnchor) : undefined,
+            anatomicalNeckBaseBody: t3(bodyBaseOfNeck),
+            anatomicalNeckBaseWorld: worldBBase ? t3(worldBBase) : undefined,
+            collarCenterScreenPx,
+            collarLeftEndpointScreenPx,
+            collarRightEndpointScreenPx,
+            shoulderSeamAnchorScreenPx,
+            anatomicalNeckBaseScreenPx,
+            screenVerticalErrorPx,
+            worldVerticalErrorMm: necklineVerticalDeltaMm,
+            coordinateMetadata: {
+              garmentLocalUnits: 'metres (anchorGroup space)',
+              bodyLocalUnits: 'metres (bodyRoot space)',
+              worldUnits: 'metres (Three.js world scene)',
+              screenUnits: 'container CSS pixels (top-left origin)',
+              wrapperScale: t3(this.currentScale),
+            },
           }
         : undefined,
     };
