@@ -40,6 +40,13 @@
   them; fast approach → distance/root lag (frame 141 root z −3.02 m while subject close) and garment not drawn while
   anchor/gizmo correct; settled-frame rule (20 px/frame) is too loose at 10 fps.
 
+- 2026-11-07 — User evidence (Safari live recording): (1) garment size constant at 0.8 m and 2.2 m, (2) stays near
+  centre when moving left, (3) "CALIBRATING DISTANCE" never completes, (4) sleeves detached. User: "Within M1 (no fixes
+  yet), add logging … Until then do not start M2." Done in f7774f0 (+ rig session). Synthetic motion assertions pass
+  (Z ×1.99, width ×0.46, anchor −299.8 px vs subject −299.7 px) ⇒ symptoms NOT reproduced on synthetic input.
+- Observed: a next-server from this working tree (started 11:34, Safari connected) was running; the user's live
+  sessions therefore likely ran ar-cleanup code. Dev-mode `appCommit` is read at server start (stale after HMR).
+
 ## Notes (out of scope for the current phase)
 - ADR-004 (pose in a Web Worker) diverges from the code; deferred to after M3 (decision 4) — needs an ADR amendment at G2.
 - Lens review open items for G2: latency cost of FR-03; CI host choice (GitHub Actions assumed); model source URL for NFR-05.
