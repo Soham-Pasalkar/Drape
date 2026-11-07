@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
+    "test:commerce": "node scripts/test-catalog-commerce.cjs",
     "test:ar": "node scripts/run-ar-tests.cjs",
     "validate:garments": "node scripts/validate-garment-assets.cjs"
   },
