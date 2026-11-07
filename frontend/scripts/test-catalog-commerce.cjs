@@ -78,12 +78,11 @@ test('balanced category distribution', () => {
     return acc;
   }, {});
 
-  assert(counts.tops === 5, `Expected 5 tops, got ${counts.tops}`);
-  assert(counts.shirts === 3, `Expected 3 shirts, got ${counts.shirts}`);
-  assert(counts.trousers === 3, `Expected 3 trousers, got ${counts.trousers}`);
-  assert(counts.outerwear === 3, `Expected 3 outerwear, got ${counts.outerwear}`);
-  assert(counts.dresses === 2, `Expected 2 dresses, got ${counts.dresses}`);
-  assert(counts.skirts === 2, `Expected 2 skirts, got ${counts.skirts}`);
+  assert(counts.tshirts === 5, `Expected 5 tshirts, got ${counts.tshirts}`);
+  assert(counts.jeans === 3, `Expected 3 jeans, got ${counts.jeans}`);
+  assert(counts.trousers === 1, `Expected 1 trousers, got ${counts.trousers}`);
+  assert(counts.skirts === 4, `Expected 4 skirts, got ${counts.skirts}`);
+  assert(counts.dresses === 5, `Expected 5 dresses, got ${counts.dresses}`);
 });
 
 test('unique product IDs, slugs, and primary SKUs', () => {
@@ -185,13 +184,13 @@ test('incompatible products have null garmentId and clear explanation', () => {
 });
 
 test('Try-On URL generation preserves garment ID and return-to-product context', () => {
-  const crewTee = catalog.getProductBySlug('atelier-classic-crew-tee');
-  assert(crewTee !== undefined, 'atelier-classic-crew-tee not found');
+  const crewTee = catalog.getProductBySlug('classic-regular-fit-crew-neck-t-shirt');
+  assert(crewTee !== undefined, 'classic-regular-fit-crew-neck-t-shirt not found');
 
   const url = buildTryOnUrl(crewTee);
   assert(url !== null, 'Try on url should not be null for crew tee');
   assert(url.includes('garment=tshirt-crewneck'), `URL missing garment param: ${url}`);
-  assert(url.includes('from=%2Fproducts%2Fatelier-classic-crew-tee'), `URL missing return context: ${url}`);
+  assert(url.includes('from=%2Fproducts%2Fclassic-regular-fit-crew-neck-t-shirt'), `URL missing return context: ${url}`);
 });
 
 // ==========================================
@@ -263,44 +262,44 @@ test('product card hover never swaps to an unrelated garment or different color'
 });
 
 test('color filtering displays matching color photograph on product cards', () => {
-  // Test filtering for Noir / Black
-  const noirProducts = catalog.filterAndSortProducts({
+  // Test filtering for Black
+  const blackProducts = catalog.filterAndSortProducts({
     category: 'all',
     query: '',
     size: '',
-    color: 'Noir',
+    color: 'Black',
     sortBy: 'featured',
   });
 
-  assert(noirProducts.total >= 4, `Expected at least 4 Noir products, found ${noirProducts.total}`);
+  assert(blackProducts.total >= 8, `Expected at least 8 Black products, found ${blackProducts.total}`);
 
-  for (const p of noirProducts.items) {
-    const cardImages = resolveCardDisplayImages(p, 'Noir');
+  for (const p of blackProducts.items) {
+    const cardImages = resolveCardDisplayImages(p, 'Black');
     assert(
-      isColorMatch(cardImages.matchedColor, 'Noir'),
-      `Product card for ${p.slug} displayed color "${cardImages.matchedColor}" instead of Noir`
+      isColorMatch(cardImages.matchedColor, 'Black'),
+      `Product card for ${p.slug} displayed color "${cardImages.matchedColor}" instead of Black`
     );
   }
 
-  // Test filtering for Concrete
-  const concreteProducts = catalog.filterAndSortProducts({
+  // Test filtering for Sage Green
+  const sageProducts = catalog.filterAndSortProducts({
     category: 'all',
     query: '',
     size: '',
-    color: 'Concrete',
+    color: 'Sage Green',
     sortBy: 'featured',
   });
 
-  assert(concreteProducts.total === 1, `Expected 1 Concrete product, found ${concreteProducts.total}`);
-  const heavyTee = concreteProducts.items[0];
-  const heavyCard = resolveCardDisplayImages(heavyTee, 'Concrete');
+  assert(sageProducts.total === 1, `Expected 1 Sage Green product, found ${sageProducts.total}`);
+  const boxyTee = sageProducts.items[0];
+  const boxyCard = resolveCardDisplayImages(boxyTee, 'Sage Green');
   assert(
-    isColorMatch(heavyCard.matchedColor, 'Concrete'),
-    `Heavyweight boxy tee card displayed "${heavyCard.matchedColor}" instead of Concrete`
+    isColorMatch(boxyCard.matchedColor, 'Sage Green'),
+    `Heavyweight boxy tee card displayed "${boxyCard.matchedColor}" instead of Sage Green`
   );
   assert(
-    heavyCard.primaryImage === '/images/pexels-photo-38347378.avif',
-    `Heavyweight boxy tee primary image mismatch: ${heavyCard.primaryImage}`
+    boxyCard.primaryImage === '/images/products/tshirts/boxy-tee/sage-front.webp',
+    `Boxy tee primary image mismatch: ${boxyCard.primaryImage}`
   );
 });
 
@@ -310,14 +309,13 @@ test('color filtering displays matching color photograph on product cards', () =
 suite('Catalog Filtering, Search & Sorting');
 
 test('filtering by category strictly isolates products without cross-category pollution', () => {
-  const categories = ['tops', 'shirts', 'trousers', 'outerwear', 'dresses', 'skirts'];
+  const categories = ['tshirts', 'jeans', 'trousers', 'skirts', 'dresses'];
   const expectedAssortment = {
-    tops: 5,
-    shirts: 3,
-    trousers: 3,
-    outerwear: 3,
-    dresses: 2,
-    skirts: 2,
+    tshirts: 5,
+    jeans: 3,
+    trousers: 1,
+    skirts: 4,
+    dresses: 5,
   };
 
   for (const cat of categories) {
@@ -344,24 +342,23 @@ test('filtering by category strictly isolates products without cross-category po
 });
 
 test('lexical search by keyword across name, description and textile', () => {
-  const cashmeres = catalog.filterAndSortProducts({
+  const cotton = catalog.filterAndSortProducts({
     category: 'all',
-    query: 'cashmere',
+    query: 'cotton',
     size: '',
     color: '',
     sortBy: 'featured',
   });
-  assert(cashmeres.total >= 1, 'Search for cashmere returned 0 results');
-  assert(cashmeres.items.some((p) => p.slug === 'cashmere-long-sleeve-top'), 'cashmere-long-sleeve-top missing');
+  assert(cotton.total >= 5, `Search for cotton returned ${cotton.total} results, expected >= 5`);
 
-  const silk = catalog.filterAndSortProducts({
+  const denim = catalog.filterAndSortProducts({
     category: 'all',
-    query: 'silk',
+    query: 'denim',
     size: '',
     color: '',
     sortBy: 'featured',
   });
-  assert(silk.total >= 3, `Expected at least 3 silk products, found ${silk.total}`);
+  assert(denim.total >= 4, `Expected at least 4 denim products, found ${denim.total}`);
 });
 
 test('filtering by size matches products with available in-stock size variants', () => {
@@ -380,28 +377,28 @@ test('filtering by size matches products with available in-stock size variants',
 });
 
 test('compound filtering strictly matches a single variant with BOTH size AND color in stock', () => {
-  // Cashmere top has Heather Sand in XS, S, M, L, XL, and Midnight Noir in S, M, L (NO XL in Noir!)
-  const cashmereSandXL = catalog.filterAndSortProducts({
-    category: 'tops',
-    query: 'cashmere',
-    size: 'XL',
-    color: 'Heather Sand',
+  // Classic crew has Sand Beige in XS, S, M, L, XL, XXL
+  const crewSandXXL = catalog.filterAndSortProducts({
+    category: 'tshirts',
+    query: 'crew',
+    size: 'XXL',
+    color: 'Sand Beige',
     sortBy: 'featured',
   });
-  assert(cashmereSandXL.total === 1, `Expected Heather Sand XL to match 1 product, got ${cashmereSandXL.total}`);
-  assert(cashmereSandXL.items[0].slug === 'cashmere-long-sleeve-top', 'Cashmere top should match Heather Sand XL');
+  assert(crewSandXXL.total === 1, `Expected Sand Beige XXL to match 1 product, got ${crewSandXXL.total}`);
+  assert(crewSandXXL.items[0].slug === 'classic-regular-fit-crew-neck-t-shirt', 'Crew tee should match Sand Beige XXL');
 
-  const cashmereNoirXL = catalog.filterAndSortProducts({
-    category: 'tops',
-    query: 'cashmere',
-    size: 'XL',
-    color: 'Midnight Noir',
+  // Cropped tee does NOT exist in size XXL
+  const croppedXXL = catalog.filterAndSortProducts({
+    category: 'tshirts',
+    query: 'cropped',
+    size: 'XXL',
+    color: 'Black',
     sortBy: 'featured',
   });
-  // Midnight Noir does NOT exist in size XL for cashmere top, so it must return 0 items!
   assert(
-    cashmereNoirXL.total === 0,
-    `Compound filter defect: Midnight Noir XL returned ${cashmereNoirXL.total} products despite having 0 stock/no variant`
+    croppedXXL.total === 0,
+    `Compound filter defect: Cropped XXL returned ${croppedXXL.total} products despite having 0 stock/no variant`
   );
 });
 

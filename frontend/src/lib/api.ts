@@ -294,12 +294,32 @@ export async function fetchBackendReadiness(): Promise<ReadyResponse> {
 }
 
 /**
+ * Safe fetch wrapper providing friendly network error translations
+ * across browsers (Safari WebKit "Load failed" -> actionable guidance).
+ */
+export async function drapeFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error: unknown) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        "Unable to connect to the DRAPE API backend. Please ensure the backend is running on http://localhost:8000."
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Register a new customer account via POST /api/v1/auth/register.
  */
 export async function registerCustomer(
   payload: RegisterPayload
 ): Promise<AuthTokenResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/auth/register`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -317,7 +337,7 @@ export async function registerCustomer(
 export async function loginCustomer(
   payload: LoginPayload
 ): Promise<AuthTokenResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -335,7 +355,7 @@ export async function loginCustomer(
 export async function refreshCustomerSession(
   refreshToken?: string
 ): Promise<AuthTokenResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -360,7 +380,7 @@ export async function logoutCustomer(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/auth/logout`, {
     method: "POST",
     headers,
     credentials: "include",
@@ -381,7 +401,7 @@ export async function fetchMyProfile(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/users/me`, {
     method: "GET",
     headers,
     credentials: "include",
@@ -404,7 +424,7 @@ export async function updateMyProfile(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/users/me`, {
     method: "PATCH",
     headers,
     credentials: "include",
@@ -426,7 +446,7 @@ export async function fetchMyConsents(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/me/consents`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/users/me/consents`, {
     method: "GET",
     headers,
     credentials: "include",
@@ -449,7 +469,7 @@ export async function updateMyConsents(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/users/me/consents`, {
+  const response = await drapeFetch(`${API_BASE_URL}/api/v1/users/me/consents`, {
     method: "PATCH",
     headers,
     credentials: "include",

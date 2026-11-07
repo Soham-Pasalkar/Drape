@@ -7,12 +7,14 @@
  */
 
 export type ProductCategory =
+  | "tshirts"
+  | "jeans"
+  | "trousers"
+  | "skirts"
+  | "dresses"
   | "tops"
   | "shirts"
-  | "trousers"
-  | "outerwear"
-  | "dresses"
-  | "skirts";
+  | "outerwear";
 
 export interface ProductCategoryMetadata {
   id: ProductCategory;

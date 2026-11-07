@@ -287,9 +287,54 @@ To connect an external CMS or database:
 
 ---
 
-## 6. Known Limitations & Next Steps
+---
 
-1. **Checkout Flow:** Checkout currently routes to `/checkout` with a demonstration order review. Real card processing via payment gateway (e.g. Razorpay or Stripe) requires active merchant keys in `.env`.
-2. **Camera Permissions:** Live 3D Try-On requires browser camera access (`getUserMedia`). If camera access is denied, the Try-On studio presents fallback guidance.
-3. **Trouser & Outerwear 3D Assets:** 3D GLBs for bifurcated trousers and heavy lined coats are not yet in the AR registry; their products properly show in-development notices.
+## 7. Everyday Apparel Catalog Replacement & Database Auth Recovery
+
+### 7.1 Everyday Apparel Assortment Architecture
+The collection catalog was successfully replaced with an everyday clothing assortment comprising 18 distinct styles across 5 clean categories:
+- **T-Shirts (5 styles):**
+  1. Classic Regular-Fit Crew Neck T-Shirt (5 colors: Noir Black, Optic White, Heather Grey, Navy Blue, Sand Beige) — mapped to `tshirt-crewneck`
+  2. Oversized Boxy T-Shirt (5 colors: Washed Black, Off-White, Sage Green, Navy Blue, Sand Beige) — mapped to `tshirt-oversized`
+  3. Relaxed-Fit Long-Sleeve T-Shirt (5 colors: Black, White, Charcoal Grey, Navy Blue, Olive Green) — mapped to `top-longsleeve`
+  4. Slim-Fit Basic T-Shirt (4 colors: Black, White, Grey, Navy Blue) — mapped to `tshirt-fitted`
+  5. Women's Cropped T-Shirt (4 colors: Black, White, Sand Beige, Dusty Rose) — mapped to `top-sleeveless`
+- **Jeans & Trousers (4 styles):**
+  6. Women's Straight-Fit Jeans (3 colors: Washed Blue, Dark Blue, Washed Black) — `tryOn: false`
+  7. Men's Straight-Fit Jeans (3 colors: Vintage Blue, Raw Indigo, Charcoal Grey) — `tryOn: false`
+  8. Relaxed-Fit Denim Jeans (3 colors: Light Blue, Medium Blue, Washed Black) — `tryOn: false`
+  9. Basic Straight-Leg Cotton Trousers (4 colors: Khaki Beige, Navy Blue, Black, Olive Green) — `tryOn: false`
+- **Skirts (4 styles):**
+  10. Basic A-Line Mini Skirt (3 colors: Black, Sand Beige, Off-White) — mapped to `skirt-aline`
+  11. Straight-Fit Mini Skirt (3 colors: Black, Cocoa Brown, Heather Grey) — `tryOn: false`
+  12. Simple Denim Mini Skirt (3 colors: Denim Blue, Washed Black, Clean White) — `tryOn: false`
+  13. Basic A-Line Midi Skirt (3 colors: Black, Olive Khaki, Warm Cream) — mapped to `skirt-pleated`
+- **Dresses (5 styles):**
+  14. Basic Sleeveless Mini Dress (3 colors: Classic Black, Ivory White, Sand Beige) — `tryOn: false`
+  15. Simple Short-Sleeve Mini Dress (3 colors: Black, Navy Blue, Muted Olive) — `tryOn: false`
+  16. Minimalist Slip Dress (3 colors: Black, Champagne Cream, Deep Burgundy) — `tryOn: false`
+  17. Basic Bodycon Mini Dress (3 colors: Jet Black, Heather Grey, Rich Burgundy) — `tryOn: false`
+  18. Simple Everyday Cotton Dress (3 colors: Navy Blue, Crisp White, Terracotta) — mapped to `dress-midi`
+
+### 7.2 Studio Photography & Directory Structure
+Every style maintains 100% design fidelity across its colorways (identical cut, folds, and silhouette; only fabric hue/tone changes).
+All 64 photographs are saved as high-efficiency WebP files in `frontend/public/images/products/<category>/<style>/<color>-front.webp`.
+
+### 7.3 PostgreSQL & FastAPI Authentication Engine
+1. **Root Cause Analysis:** The browser notice `AUTHENTICATION NOTICE — Load failed` was traced to WebKit's native error handling when `fetch` encountered connection failure (PostgreSQL and backend services were uninitialized).
+2. **Infrastructure Recovery:**
+   - PostgreSQL 16 provisioned on `localhost:5432` with database `drape_db` and user `drape_app`.
+   - All 5 Alembic migrations executed to head (`0001_initial_baseline` through `0005_wardrobe_and_outfits`).
+   - FastAPI backend daemon operational on `http://0.0.0.0:8000`.
+   - End-to-end user registration and login verified with bcrypt cost-factor 12 password hashing in `users` table and session storage in `user_sessions`.
+   - Added friendly network error translation in `frontend/src/lib/api.ts` via `drapeFetch` so any offline event renders clear backend connectivity instructions.
+
+### 7.4 Verification Test Results
+- `npm --prefix frontend run test:commerce`: 21 passed, 0 failed.
+- `npm --prefix frontend run test:ar`: 284 passed, 0 failed (AR baseline 100% frozen).
+- `npm --prefix frontend run validate:garments`: 8 valid 3D assets.
+- `npm --prefix frontend run lint`: 0 errors / 0 warnings.
+- `npm --prefix frontend run build`: 17 routes compiled successfully.
+- `pytest backend/tests/`: 30 passed in 7.87s (`test_auth.py`, `test_catalog.py`, `test_cart.py`).
+
 

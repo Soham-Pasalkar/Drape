@@ -17,12 +17,11 @@ import {
 import { isColorMatch } from "../utils/product-mapping";
 
 export const CATEGORY_METADATA: Array<{ id: ProductCategory; label: string }> = [
-  { id: "tops", label: "Tops & Tees" },
-  { id: "shirts", label: "Shirts" },
+  { id: "tshirts", label: "T-Shirts" },
+  { id: "jeans", label: "Jeans" },
   { id: "trousers", label: "Trousers" },
-  { id: "outerwear", label: "Outerwear & Coats" },
-  { id: "dresses", label: "Dresses" },
   { id: "skirts", label: "Skirts" },
+  { id: "dresses", label: "Dresses" },
 ];
 
 export class CatalogService {

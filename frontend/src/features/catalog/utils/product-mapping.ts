@@ -67,11 +67,13 @@ export function getProductTryOnStatus(product: Pick<Product, "category" | "tryOn
 
   // Not compatible with current 3D assets
   const categoryExplanations: Record<string, string> = {
-    shirts: "3D try-on is currently in development for tailored button-front shirting.",
-    trousers: "3D virtual try-on is currently in development for bifurcated trouser patterns.",
-    outerwear: "3D virtual try-on is currently in development for structured heavy outerwear and coats.",
-    dresses: "3D virtual try-on is currently in development for delicate strap and bias slip silhouettes.",
+    tshirts: "3D virtual try-on is currently available for crewneck, boxy, fitted, and cropped styles.",
+    jeans: "3D virtual try-on is currently in development for bifurcated denim patterns.",
+    trousers: "3D virtual try-on is currently in development for tailored trousers.",
     skirts: "3D virtual try-on is currently available for selected A-line and pleated skirts.",
+    dresses: "3D virtual try-on is currently available for selected midi dresses.",
+    shirts: "3D try-on is currently in development for tailored button-front shirting.",
+    outerwear: "3D virtual try-on is currently in development for structured heavy outerwear and coats.",
     tops: "3D virtual try-on is currently available for crewneck, boxy, fitted, and cashmere tops.",
   };
 
@@ -103,7 +105,7 @@ export function buildTryOnUrl(product: Pick<Product, "slug" | "tryOn">): string 
 
 /**
  * Checks whether a garment color name matches a target color filter or search term.
- * Handles synonymous fashion shades (e.g., Noir / Black, Chalk White / White).
+ * Handles synonymous everyday apparel shades.
  */
 export function isColorMatch(garmentColor: string, targetColor: string): boolean {
   if (!garmentColor || !targetColor) return false;
@@ -111,13 +113,44 @@ export function isColorMatch(garmentColor: string, targetColor: string): boolean
   const t = targetColor.trim().toLowerCase();
   if (c === t) return true;
 
-  // Synonyms for Black / Noir
-  const blackFamily = ["noir", "black", "obsidian", "raven black", "midnight noir", "deep raven", "washed black", "black ink", "midnight black", "jet noir"];
+  // Synonyms for Black
+  const blackFamily = ["noir", "black", "jet black", "washed black", "black ink", "midnight black", "deep raven", "charcoal black"];
   if (blackFamily.includes(t) && blackFamily.includes(c)) return true;
 
   // Synonyms for White
-  const whiteFamily = ["white", "optic white", "chalk white", "glacier white", "optical white"];
+  const whiteFamily = ["white", "off-white", "optic white", "chalk white", "ivory", "ivory white", "clean white", "cream", "warm cream"];
   if (whiteFamily.includes(t) && whiteFamily.includes(c)) return true;
+
+  // Synonyms for Blue / Navy / Denim
+  const navyFamily = ["navy", "navy blue", "deep navy", "dark blue", "midnight blue"];
+  if (navyFamily.includes(t) && navyFamily.includes(c)) return true;
+
+  const denimFamily = ["washed blue", "vintage blue", "denim blue", "light blue", "medium blue", "light washed blue", "indigo", "raw indigo"];
+  if (denimFamily.includes(t) && denimFamily.includes(c)) return true;
+
+  // Synonyms for Grey
+  const greyFamily = ["grey", "gray", "heather grey", "charcoal grey", "charcoal", "light grey"];
+  if (greyFamily.includes(t) && greyFamily.includes(c)) return true;
+
+  // Synonyms for Beige / Tan
+  const beigeFamily = ["beige", "sand beige", "sand", "khaki", "khaki beige", "tan", "champagne", "champagne cream"];
+  if (beigeFamily.includes(t) && beigeFamily.includes(c)) return true;
+
+  // Synonyms for Olive / Green
+  const oliveFamily = ["olive", "olive green", "muted olive", "olive khaki"];
+  if (oliveFamily.includes(t) && oliveFamily.includes(c)) return true;
+
+  // Synonyms for Sage Green
+  const sageFamily = ["sage", "sage green"];
+  if (sageFamily.includes(t) && sageFamily.includes(c)) return true;
+
+  // Synonyms for Brown
+  const brownFamily = ["brown", "cocoa brown", "dark brown", "chocolate"];
+  if (brownFamily.includes(t) && brownFamily.includes(c)) return true;
+
+  // Synonyms for Burgundy / Rose
+  const redFamily = ["burgundy", "deep burgundy", "rich burgundy", "rose", "dusty rose", "terracotta"];
+  if (redFamily.includes(t) && redFamily.includes(c)) return true;
 
   return false;
 }
