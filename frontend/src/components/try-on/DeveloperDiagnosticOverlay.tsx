@@ -34,6 +34,7 @@ export interface DiagnosticLayers {
   correspondence: boolean;
   collisionNormals: boolean;
   axesGizmo: boolean;
+  registration: boolean;
 }
 
 export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
@@ -45,7 +46,20 @@ export const DEFAULT_DIAGNOSTIC_LAYERS: DiagnosticLayers = {
   correspondence: false,
   collisionNormals: false,
   axesGizmo: true,
+  registration: true,
 };
+
+/** Stage-1b pixel registration: on-screen (post-CSS-flip) pixels. */
+export interface RegistrationReadout {
+  /** |cyan − magenta| per keypoint vs raw landmarks (what is drawn) and vs the smoothed
+   *  landmarks the solver used. null when the landmark is not visible (< 0.5). */
+  errors: Record<string, { raw: number; smoothed: number } | null>;
+  /** Garment anchor (rendered, smoothed pose) minus mid-shoulder (raw), on-screen px. */
+  anchorDx: number | null;
+  anchorDy: number | null;
+  /** Mid-shoulder position on screen, to tell centre / left / right / high / low apart. */
+  midShoulderScreen: { x: number; y: number } | null;
+}
 
 /** Stage-1 per-frame diagnosis readout (all values from live runtime objects). */
 export interface Stage1Readout {
@@ -136,6 +150,7 @@ export interface DiagnosticMetrics {
   measurements: BodyMeasurements | null;
   ease: GarmentEase | null;
   stage1: Stage1Readout;
+  registration: RegistrationReadout | null;
 }
 
 const BONES: [number, number][] = [
@@ -197,6 +212,27 @@ export function DiagnosticCanvasLayer({
         ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
         ctx.fillStyle = i === 11 || i === 12 ? "#FF3B30" : "#D4FF00";
         ctx.fill();
+      }
+    }
+
+    if (layers.registration) {
+      // Cyan = raw landmark through the SAME display transform as the video.
+      ctx.fillStyle = "#00FFFF";
+      for (const i of [11, 12, 23, 24]) {
+        if (!vis(i)) continue;
+        const p = toCss(rawLandmarks[i]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (vis(11) && vis(12)) {
+        const a = toCss(rawLandmarks[11]), b = toCss(rawLandmarks[12]);
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        ctx.strokeStyle = "#00FFFF";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(mx - 8, my); ctx.lineTo(mx + 8, my); ctx.moveTo(mx, my - 8); ctx.lineTo(mx, my + 8);
+        ctx.stroke();
       }
     }
 
@@ -271,6 +307,7 @@ export default function DeveloperDiagnosticOverlay({
     ["correspondence", "Correspondence"],
     ["collisionNormals", "Collision normals"],
     ["axesGizmo", "Axes + F"],
+    ["registration", "Registration"],
   ];
   const MODES: [DebugMaterialMode, string][] = [
     ["normal", "Mat: normal"],
@@ -314,6 +351,17 @@ export default function DeveloperDiagnosticOverlay({
         <div className="text-warm-ivory/50 pt-2">Waiting for the first tracked frame…</div>
       ) : (
         <>
+          {m.registration && (
+            <Group title="Registration (screen px)">
+              {(["left_shoulder", "right_shoulder", "left_hip", "right_hip"] as const).map((k) => {
+                const e = m.registration!.errors[k];
+                return <Row key={k} k={`err ${k}`} v={e ? `${f(e.raw, 1)} raw / ${f(e.smoothed, 1)} sm` : "not visible"} warn={!!e && e.raw > 8} />;
+              })}
+              <Row k="anchor dx,dy" v={`${f(m.registration.anchorDx, 1)}, ${f(m.registration.anchorDy, 1)}`} warn={Math.hypot(m.registration.anchorDx ?? 0, m.registration.anchorDy ?? 0) > 8} />
+              <Row k="mid-shoulder" v={m.registration.midShoulderScreen ? `${f(m.registration.midShoulderScreen.x, 0)}, ${f(m.registration.midShoulderScreen.y, 0)}` : "—"} />
+            </Group>
+          )}
+
           <Group title="Stage 1 probe">
             <Row k="Frames r/p" v={`${m.stage1.renderFrame} / ${m.stage1.poseFrameId}`} />
             <Row k="Pose ts" v={m.stage1.poseTimestampMs === null ? "—" : `${f(m.stage1.poseTimestampMs, 0)} ms`} />

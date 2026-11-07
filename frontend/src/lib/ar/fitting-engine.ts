@@ -126,6 +126,8 @@ export interface DetailedFittingResult {
   /** Body-local joint positions for limb occlusion / collision capsules. */
   limbJoints: Partial<Record<MHRJointName, [number, number, number]>>;
   pnpResult: PnPResult;
+  /** PnP model keypoints mapped to camera space with the solved pose: R·X_i + t (metres). */
+  pnpKeypointsCamera: Record<string, [number, number, number]>;
   distance: DistanceEstimate;
   measurements: BodyMeasurements;
   ease: GarmentEase;
@@ -295,6 +297,8 @@ export class FittingEngine {
     const qRoot = new THREE.Quaternion(...pnp.rootRotation);
     const pRoot = new THREE.Vector3(...pnp.rootPosition);
     const invRoot = qRoot.clone().invert();
+    const pnpKeypointsCamera: Record<string, [number, number, number]> = {};
+    for (const c of correspondences) pnpKeypointsCamera[c.name] = toTuple(c.model.clone().applyQuaternion(qRoot).add(pRoot));
 
     // 7. Limb directions: one consistent 3D space (world landmarks → camera axes → body-local).
     const segmentDirBody = (a: number, b: number, aKp: LandmarkPoint | undefined, bKp: LandmarkPoint | undefined): THREE.Vector3 | null => {
@@ -395,6 +399,7 @@ export class FittingEngine {
       fullArmDirectionsBody: { left: lChord ? toTuple(lChord) : null, right: rChord ? toTuple(rChord) : null },
       limbJoints,
       pnpResult: pnp,
+      pnpKeypointsCamera,
       distance,
       measurements,
       ease,

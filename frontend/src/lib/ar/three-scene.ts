@@ -21,7 +21,7 @@ import { CameraIntrinsics, GarmentMetadata, MHRJointName } from './types';
 import { MHRBodyProxy, BodyShape } from './mhr-body-proxy';
 import { FabricMaterialFactory } from './fabric-materials';
 import { GarmentInstance, GarmentDebugFlags, GarmentDiagnostics, SimulationData } from './garment-instance';
-import { buildProjectionMatrix, VideoDisplayTransform } from './coordinates';
+import { buildProjectionMatrix, VideoDisplayTransform, ndcToDisplay, Vec2 } from './coordinates';
 import { DetailedFittingResult } from './fitting-engine';
 import {
   DebugMaterialMode,
@@ -130,6 +130,10 @@ export class ThreeSceneManager {
   private axesVisible = false;
   private probeEnabled = false;
   private probeRgb: [number, number, number] | null = null;
+  // Stage-1b registration probes (magenta = 3D, projected by the render camera)
+  private registrationGroup: THREE.Group | null = null;
+  private registrationVisible = false;
+  private registrationCube: THREE.Mesh | null = null;
   private shoulderNdc: { left: { x: number; y: number }; right: { x: number; y: number } } | null = null;
 
   private onContextLost = (e: Event) => {
@@ -271,6 +275,7 @@ export class ThreeSceneManager {
     inst.setDebug(this.debug, this.bodyProxy);
     this.applyMaterialMode();
     this.attachGizmo();
+    this.attachRegistrationCube();
     // Legs are inside skirts / dresses; arms are outside every garment's torso panel.
     this.bodyProxy.setCollisionCapsules(garment.category === 'tops' ? [] : ['left_thigh', 'right_thigh']);
   }
@@ -295,6 +300,12 @@ export class ThreeSceneManager {
     this.armR = fit.armDirectionsBody.right ? new THREE.Vector3(...fit.armDirectionsBody.right) : null;
     this.chordL = fit.fullArmDirectionsBody.left ? new THREE.Vector3(...fit.fullArmDirectionsBody.left) : null;
     this.chordR = fit.fullArmDirectionsBody.right ? new THREE.Vector3(...fit.fullArmDirectionsBody.right) : null;
+
+    if (this.registrationGroup) {
+      for (const [name, p] of Object.entries(fit.pnpKeypointsCamera)) {
+        this.registrationGroup.getObjectByName('reg_' + name)?.position.set(p[0], p[1], p[2]);
+      }
+    }
 
     this.bodyProxy.setShape(fit.bodyShape);
     const limbs: Partial<Record<MHRJointName, THREE.Vector3>> = {};
@@ -343,6 +354,58 @@ export class ThreeSceneManager {
   /** Shoulder landmarks in NDC, for comparing garment +X with the image. */
   setShoulderNdcHint(hint: { left: { x: number; y: number }; right: { x: number; y: number } } | null): void {
     this.shoulderNdc = hint;
+  }
+
+  /** Magenta spheres at R·X_i + t (raw PnP pose) and a magenta cube at the garment anchor. */
+  setRegistrationVisible(visible: boolean): void {
+    this.registrationVisible = visible;
+    if (!this.registrationGroup) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false });
+      this.registrationGroup = new THREE.Group();
+      this.registrationGroup.name = 'registration_probe';
+      for (const n of ['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip']) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), mat);
+        m.name = 'reg_' + n;
+        m.renderOrder = 30;
+        this.registrationGroup.add(m);
+      }
+      this.scene.add(this.registrationGroup); // camera space == scene space
+      this.registrationCube = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.025, 0.025), mat);
+      this.registrationCube.renderOrder = 30;
+      this.registrationCube.name = 'reg_garment_anchor';
+    }
+    this.registrationGroup.visible = visible;
+    this.attachRegistrationCube();
+  }
+
+  private attachRegistrationCube(): void {
+    if (!this.registrationCube) return;
+    this.registrationCube.parent?.remove(this.registrationCube);
+    if (this.active && this.registrationVisible) {
+      this.registrationCube.position.copy(this.active.anchor.anchor);
+      this.active.anchorGroup.add(this.registrationCube);
+    }
+  }
+
+  /**
+   * Container-pixel (pre-CSS-flip) positions of the magenta probes, projected with THE camera
+   * used for rendering (Vector3.project → NDC → container px).
+   */
+  registrationPixels(display: VideoDisplayTransform): { keypoints: Record<string, Vec2>; garmentAnchor: Vec2 | null } {
+    const keypoints: Record<string, Vec2> = {};
+    this.camera.updateMatrixWorld();
+    if (this.registrationGroup) {
+      for (const c of this.registrationGroup.children) {
+        const p = c.position.clone().project(this.camera);
+        keypoints[c.name.replace('reg_', '')] = ndcToDisplay({ x: p.x, y: p.y }, display);
+      }
+    }
+    let garmentAnchor: Vec2 | null = null;
+    if (this.active) {
+      const w = this.active.anchorGroup.localToWorld(this.active.anchor.anchor.clone()).project(this.camera);
+      garmentAnchor = ndcToDisplay({ x: w.x, y: w.y }, display);
+    }
+    return { keypoints, garmentAnchor };
   }
 
   private attachGizmo(): void {

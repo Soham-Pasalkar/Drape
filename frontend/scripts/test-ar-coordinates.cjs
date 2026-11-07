@@ -208,4 +208,41 @@ test('MediaPipe world (x right, y down, z away) → camera (x right, y up, z tow
   near(v.z, -0.3, 0);
 });
 
+suite('Stage 1b — 9-point screen registration (render camera vs video, after CSS mirror)');
+for (const [Cw, Ch, label] of [[800, 600, '4:3 container'], [1280, 720, '1.78 container'], [700, 900, 'portrait container']]) {
+  test(`video 1280×720 in ${label} ${Cw}×${Ch}: all 9 points < 2 px, left/right preserved`, () => {
+    const k = new CameraCalibrationManager(1280, 720).getIntrinsics();
+    const t = C.computeVideoDisplayTransform(1280, 720, Cw, Ch, 'cover');
+    // Camera exactly as ThreeSceneManager sets it up.
+    const cam = new THREE.PerspectiveCamera(60, Cw / Ch, 0.05, 20);
+    cam.position.set(0, 0, 0);
+    cam.matrixAutoUpdate = false;
+    cam.updateMatrixWorld(true);
+    C.buildProjectionMatrix(k, t, 0.05, 20, cam.projectionMatrix);
+    cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+    const mirror = (x) => Cw - x; // the single CSS scaleX(-1)
+    const lines = [];
+    for (const x of [-0.3, 0, 0.3]) for (const y of [-0.2, 0, 0.2]) {
+      const P = new THREE.Vector3(x, y, -1.5);
+      // Expected: what the <video> shows — K projection → object-cover → mirror.
+      const img = C.cameraToImage(P, k);
+      const vd = C.imageToDisplay(img, t);
+      const expected = { x: mirror(vd.x), y: vd.y };
+      // Rendered: projectionMatrix → NDC → canvas px → mirror.
+      const n = P.clone().project(cam);
+      const rendered = { x: mirror(((n.x + 1) / 2) * Cw), y: ((1 - n.y) / 2) * Ch };
+      const err = Math.hypot(rendered.x - expected.x, rendered.y - expected.y);
+      lines.push(`(${x},${y}) err=${err.toExponential(1)}px`);
+      assert(err < 2, `point (${x},${y}) error ${err} px`);
+      // Same side of the mirrored screen in both the video and the render.
+      if (x !== 0) assert(Math.sign(rendered.x - Cw / 2) === Math.sign(expected.x - Cw / 2), 'left/right mismatch');
+      // Camera +X (subject's left when facing the camera) appears on the LEFT of the mirrored screen.
+      const ppScreenX = mirror(C.imageToDisplay({ x: k.cx, y: k.cy }, t).x);
+      if (x > 0) assert(rendered.x < ppScreenX, `camera +X must render left of centre on the mirrored screen (${rendered.x} vs ${ppScreenX})`);
+      if (x < 0) assert(rendered.x > ppScreenX, 'camera −X must render right of centre on the mirrored screen');
+    }
+    console.log('      ' + lines.join('  '));
+  });
+}
+
 finish('test-ar-coordinates');
