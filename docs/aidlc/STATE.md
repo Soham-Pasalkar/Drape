@@ -57,3 +57,16 @@
 ## Notes (out of scope for the current phase)
 - ADR-004 (pose in a Web Worker) diverges from the code; deferred to after M3 (decision 4) — needs an ADR amendment at G2.
 - Lens review open items for G2: latency cost of FR-03; CI host choice (GitHub Actions assumed); model source URL for NFR-05.
+
+## 2026-11-07 — fix item 6 (adversarial test) — NOT committed, test:ar red (1 assertion)
+- 3 attempts made (rule 5 stop). Passing: mode never blocks, width 1.060–1.149, anchor max 6.8 px, seam gap 0.26 cm, bust mode.
+- Failing: Z ratio max 1.193 (limit 1.15) on 4 frames during fast approaches (t 7.07–7.10, 9.30–9.33); the instant estimate itself is +12–16 %, because the smoothed shoulder span lags the real one.
+- Options: (a) depth from the raw (unfiltered) span plus the Z 1€ filter; (b) predict span velocity; (c) accept ±20 % during approaches faster than 1.5 m/s.
+
+### DECISION (user approved 2026-11-07): Z assertion split — option 3
+- test-ar-motion 2a: Z within ±15 % on ≥ 95 % of frames (measured 98.6 %); 2b: within ±20 % on every frame (max 1.193).
+- Frames with true approach speed > 1.5 m/s are reported separately: 12 frames, max |err| 19.3 %. No other threshold changed.
+- Reason: the miss is 4 frames (< 0.1 s each) during fast approaches; the alternatives add jitter or complexity.
+- Item 6 committed with test:ar green; tagged ar-m1-fix. M2 NOT started.
+- FIRST THING TO TRY if live jitter is reported: re-introduce small pose easing (POSE_TAU_S ≈ 0.016 s, three-scene.ts),
+  since the pose now snaps to every new target.

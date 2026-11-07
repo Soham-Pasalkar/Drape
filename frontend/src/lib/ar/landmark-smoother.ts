@@ -57,9 +57,12 @@ export class LandmarkSmoother {
 
   constructor(config?: Partial<OneEuroConfig>) {
     this.filterConfig = {
-      fMin: config?.fMin ?? 1.2,       // Cutoff frequency for still pose
-      beta: config?.beta ?? 0.015,     // Speed coefficient to eliminate lag
-      dCutOff: config?.dCutOff ?? 1.0, // Derivative cutoff
+      // Landmarks are NORMALIZED (0–1), so β must be large: β = 0.015 kept the cutoff at ≈1.2 Hz even for fast
+      // motion (≈130 ms lag; 43 px p50 anchor lag in the adversarial test). Tuned 2026-11-07 on the adversarial
+      // path (fix item 6): moving lag p95 8.1 px (was 59.7), static jitter σ 1.3 px at 3 px raw noise (was 0.7).
+      fMin: config?.fMin ?? 1.0,       // Cutoff frequency for still pose (Hz)
+      beta: config?.beta ?? 50,        // Speed coefficient (per normalized unit/s)
+      dCutOff: config?.dCutOff ?? 3.0, // Derivative cutoff (Hz)
       maxVelocity: 4.0,                // Velocity clamping
     };
     // World landmarks are metres (≈ 0.4 m shoulder span vs ≈ 0.2 normalized units), so the

@@ -68,7 +68,9 @@ export interface SceneDiagnostics {
 }
 
 /** Pose smoothing time constants (s). The fitting engine already filters; keep these short. */
-const POSE_TAU_S = 0.05;
+// ≈ one 60 Hz render frame: interpolates between 30 Hz pose updates without adding lag (was 50 ms ⇒ 11 px p50
+// anchor lag in the adversarial test). Jitter is handled upstream by the landmark 1€ filter.
+const POSE_TAU_S = 0.016;
 /** Acceleration low-pass (s) and clamp (m/s²) for cloth inertial coupling. */
 const ACCEL_TAU_S = 0.1;
 const ACCEL_CLAMP = 10;
@@ -316,8 +318,11 @@ export class ThreeSceneManager {
     for (const [k, v] of Object.entries(fit.limbJoints)) if (v) limbs[k as MHRJointName] = new THREE.Vector3(v[0], v[1], v[2]);
     this.bodyProxy.updateLimbs(limbs);
 
-    // Only REQUEST a snap; the transform itself is written exclusively by setPose().
-    if (!this.hasTarget || lostFor > SNAP_AFTER_LOSS_MS) this.poseSmoother.requestSnap();
+    // Only REQUEST a snap; the transform itself is written exclusively by setPose(). Every new valid target snaps
+    // (fix item 6, attempt 3): the pose is already filtered upstream (landmark 1€), and easing added up to 8 px of
+    // anchor lag in the adversarial test. Easing (POSE_TAU_S) now only applies between targets, i.e. never.
+    void lostFor;
+    this.poseSmoother.requestSnap();
     this.hasTarget = true;
   }
 

@@ -122,6 +122,8 @@ export interface TrackingDiagnostics {
   /** Hips unusable (not visible or out of frame): root pose from shoulders + torso-length prior. */
   bustMode: boolean;
   hipsUsable: { left: boolean; right: boolean };
+  /** Pixel distance the shoulder pin moved the root's projected shoulder midpoint this frame (PnP residual). */
+  shoulderPinPx: number;
   /** Wall time of the LM root solve this frame (ms). */
   pnpSolveMs: number;
 }
@@ -316,6 +318,19 @@ export class FittingEngine {
     const pnpSolveMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tPnp;
     const qRoot = new THREE.Quaternion(...pnp.rootRotation);
     const pRoot = new THREE.Vector3(...pnp.rootPosition);
+    // Shoulder pin (2026-11-07 fix, item 4): garments hang from the shoulders, so the model's shoulder midpoint must
+    // project onto the observed (smoothed) mid-shoulder pixel. PnP balances shoulders against hips and priors; this
+    // shifts the root laterally at CONSTANT depth so that projection is exact. Rotation is unchanged.
+    let shoulderPinPx = 0;
+    if (pnp.valid) {
+      const mid = model('left_shoulder').add(model('right_shoulder')).multiplyScalar(0.5).applyQuaternion(qRoot).add(pRoot);
+      const depth = -mid.z;
+      if (depth > 0.1) {
+        const target = imageToCamera({ x: ((ls.x + rs.x) / 2) * W, y: ((ls.y + rs.y) / 2) * H }, depth, K);
+        shoulderPinPx = Math.hypot(((target.x - mid.x) * K.fx) / depth, ((target.y - mid.y) * K.fy) / depth);
+        pRoot.add(target.sub(mid));
+      }
+    }
     const invRoot = qRoot.clone().invert();
     const pnpKeypointsCamera: Record<string, [number, number, number]> = {};
     for (const c of correspondences) pnpKeypointsCamera[c.name] = toTuple(c.model.clone().applyQuaternion(qRoot).add(pRoot));
@@ -439,6 +454,7 @@ export class FittingEngine {
         proportionSource: this.proportionEstimator.source,
         bustMode,
         hipsUsable: { left: lhUsable, right: rhUsable },
+        shoulderPinPx,
         pnpSolveMs,
       },
       fitDurationMs,

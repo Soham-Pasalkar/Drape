@@ -31,9 +31,12 @@ export const DISTANCE_ESTIMATOR_CONFIG = {
   COS_YAW_FULL: 0.9,
   /** After this long without a weight ≥ 0.5 the instant estimate is used regardless. */
   LOW_WEIGHT_TIMEOUT_MS: 1000,
-  /** Physical bound on how fast a person can approach / retreat (m/s). */
-  MAX_RATE_MPS: 2.5,
-  ONE_EURO: { fMin: 1.5, beta: 2.0, dCutOff: 1.0, maxVelocity: 10 },
+  /**
+   * Bound on how fast Z may change (m/s). Rejects one-frame span glitches (≥ 10 m/s implied) while allowing fast
+   * real approaches (the adversarial test steps in at ≈ 3 m/s; 2.5 m/s clipped it — fix item 6, attempt 2).
+   */
+  MAX_RATE_MPS: 5.0,
+  ONE_EURO: { fMin: 1.5, beta: 6.0, dCutOff: 1.0, maxVelocity: 10 },
   MIN_DISTANCE_M: 0.3,
   MAX_DISTANCE_M: 5.0,
 };
