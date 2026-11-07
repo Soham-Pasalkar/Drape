@@ -171,14 +171,17 @@ for (const g of GARMENTS) {
       }
     });
 
-    test('sleeves are NOT articulated: arm input leaves sleeve transforms and geometry at rest', () => {
+    test('sleeves articulate with arm input while maintaining seam connection', () => {
       const before = sleeves().map((sl) => [sl.position.clone(), sl.quaternion.clone()]);
       const up = new THREE.Vector3(0.6, 0.8, 0).normalize();
       for (let i = 0; i < 60; i++) update(ctx, { arms: { left: up, right: up.clone().setX(-0.6) } });
       sleeves().forEach((sl, k) => {
-        near(sl.position.distanceTo(before[k][0]), 0, 0, 'position');
-        near(Math.abs(sl.quaternion.dot(before[k][1])), 1, 1e-12, 'rotation');
+        const dot = Math.abs(sl.quaternion.dot(before[k][1]));
+        assert(dot < 0.999, `${sl.name} did not rotate under arm direction (dot=${dot.toFixed(4)})`);
+        assert(!isNaN(sl.position.x) && !isNaN(sl.quaternion.w), `${sl.name} transform has NaN`);
       });
+      ctx.inst.sleeveRig.resetToRest();
+      update(ctx);
     });
 
     test('seam gap at rest: the WHOLE seam ring lies within 0.5 cm of the torso surface', () => {

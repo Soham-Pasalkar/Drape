@@ -232,6 +232,8 @@ export interface FittingProfile {
   scaleMultipliers: FittingScaleMultipliers;
   yOffset: number;
   zOffset: number;
+  /** Calibrated vertical correction for neckline/collar alignment (metres, positive = upward). */
+  necklineOffsetY?: number;
 }
 
 /**

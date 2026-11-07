@@ -507,6 +507,21 @@ export default function DeveloperDiagnosticOverlay({
               <Row k="Δ metadata" v={`${f(m.garment.anchorMetadataDeltaM * 1000, 1)} mm`} warn={m.garment.anchorMetadataDeltaM > 0.01} />
               <Row k="Anchor (B)" v={`${v3(m.garment.bodyAnchorLocal)} ${m.garment.bodyAnchorType}`} />
               <Row k="Align error" v={`${f(m.garment.anchorAlignmentErrorM * 1000, 3)} mm`} warn={m.garment.anchorAlignmentErrorM > 1e-3} />
+              {m.garment.neckline && (
+                <>
+                  <Row k="Neckline (G)" v={v3(m.garment.neckline.garmentNecklineLocal)} />
+                  <Row k="Neckline (B)" v={v3(m.garment.neckline.bodyNeckLocal)} />
+                  <Row
+                    k="Neck disp"
+                    v={
+                      m.garment.neckline.projectedDisplacementPx !== undefined
+                        ? `${f(m.garment.neckline.projectedDisplacementPx, 1)} px`
+                        : `${f(m.garment.neckline.necklineDispMm ?? 0, 1)} mm`
+                    }
+                  />
+                  <Row k="Neck offset" v={`${f(m.garment.neckline.appliedOffsetY * 1000, 1)} mm`} />
+                </>
+              )}
               <Row k="World pos" v={v3(m.garment.worldPosition)} />
               <Row k="World rot" v={`${v3(m.garment.worldEulerDeg, 1)}°`} />
               <Row k="Scale" v={v3(m.garment.scale, 3)} />

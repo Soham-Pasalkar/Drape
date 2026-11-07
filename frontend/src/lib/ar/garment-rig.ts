@@ -43,6 +43,7 @@ export function composeGarmentRootMatrix(
 
 export interface SemanticAnchorResult {
   anchor: THREE.Vector3;
+  neckline?: THREE.Vector3;
   source: 'geometry' | 'metadata';
   /** |geometry − metadata| in metres (NaN when geometry could not be evaluated). */
   metadataDeltaM: number;
@@ -93,6 +94,7 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
 
   let anchor: THREE.Vector3;
   let features: THREE.Vector3[];
+  let neckline: THREE.Vector3 | undefined;
   if (metadata.modelAnchor.type === 'shoulder_center') {
     const band = main.filter((v) => v.y >= maxY - 0.06 * (maxY - minY));
     let left = band[0];
@@ -103,6 +105,16 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
     }
     anchor = left.clone().add(right).multiplyScalar(0.5);
     features = [left.clone(), right.clone()];
+
+    // Front collar neckline reference from geometry: front-center dip of collar opening
+    const collarFront = main.filter((v) => Math.abs(v.x) < 0.03 && v.z > 0 && v.y >= maxY - 0.35 * (maxY - minY));
+    if (collarFront.length > 0) {
+      let lowestFront = collarFront[0];
+      for (const v of collarFront) {
+        if (v.y < lowestFront.y) lowestFront = v;
+      }
+      neckline = lowestFront.clone();
+    }
   } else {
     // Top opening of the whole garment (waistband / neckline ring).
     const all = collectVertices(root);
@@ -112,7 +124,50 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
     anchor = ring.reduce((acc, v) => acc.add(v), new THREE.Vector3()).divideScalar(ring.length);
     features = ring.slice(0, 8);
   }
-  return { anchor, source: 'geometry', metadataDeltaM: anchor.distanceTo(meta), featurePoints: features };
+  return { anchor, neckline, source: 'geometry', metadataDeltaM: anchor.distanceTo(meta), featurePoints: features };
+}
+
+/**
+ * Smoothly lifts the collar dip vertices of the torso mesh upward (+Y) by `offset` metres.
+ * Applied in garment-local geometry space to collar vertices (|x| < 0.10 m, z > 0, v < 0.15).
+ * Does not disturb the shoulder seams (|x| > 0.18 m) or any other garment anchor.
+ */
+export function applyNecklineOffset(
+  root: THREE.Object3D,
+  offset: number,
+  simulationMeshName?: string
+): number {
+  if (!offset || Math.abs(offset) < 1e-5) return 0;
+  let modifiedCount = 0;
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (simulationMeshName && m.name !== simulationMeshName && !m.name.includes('torso') && !m.name.includes('dress')) return;
+    const pos = m.geometry.getAttribute('position');
+    const uv = m.geometry.getAttribute('uv');
+    if (!pos || !uv) return;
+
+    const collarHalfWidth = 0.09;
+    const maxV = 0.08;
+    for (let i = 0; i < pos.count; i++) {
+      const v = uv.getY(i);
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      if (v < maxV && Math.abs(x) < collarHalfWidth && z > 0) {
+        const factorX = 1 - Math.abs(x) / collarHalfWidth;
+        const factorV = 1 - v / maxV;
+        pos.setY(i, pos.getY(i) + offset * factorX * factorV);
+        modifiedCount++;
+      }
+    }
+    if (modifiedCount > 0) {
+      pos.needsUpdate = true;
+      m.geometry.computeVertexNormals();
+      m.geometry.computeBoundingBox();
+      m.geometry.computeBoundingSphere();
+    }
+  });
+  return modifiedCount;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -163,25 +218,62 @@ export interface SleeveDescriptor {
   minAbductionRad: number;
   /** Rotation garment-root → sleeve parent (inverse applied to garment-local directions). */
   rootToParent: THREE.Quaternion;
+  /** Armhole seam pivot point in the node's own local space. */
+  pivotLocal: THREE.Vector3;
 }
 
-/** Determines a sleeve's seam→cuff axis and dimensions from its bounding box. */
+/** Determines a sleeve's seam→cuff axis, pivot point and dimensions from geometry. */
 export function describeSleeve(
   node: THREE.Mesh,
   side: 'left' | 'right',
   rest: RestTransform,
   rootToParent: THREE.Quaternion = new THREE.Quaternion()
 ): SleeveDescriptor {
-  node.geometry.computeBoundingBox();
-  const box = node.geometry.boundingBox!;
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const dims = [size.x, size.y, size.z];
-  const axisIdx = dims.indexOf(Math.max(...dims));
-  const axisLocal = new THREE.Vector3();
-  axisLocal.setComponent(axisIdx, Math.sign(center.getComponent(axisIdx)) || -1);
-  const lengthM = dims[axisIdx];
-  const openingRadiusM = Math.max(...dims.filter((_, i) => i !== axisIdx)) / 2;
+  const geom = node.geometry;
+  const pos = geom.getAttribute('position');
+  const uv = geom.getAttribute('uv');
+
+  let axisLocal: THREE.Vector3;
+  let pivotLocal: THREE.Vector3;
+  let lengthM: number;
+  let openingRadiusM: number;
+
+  const seamPts: THREE.Vector3[] = [];
+  const cuffPts: THREE.Vector3[] = [];
+
+  if (pos && uv) {
+    for (let i = 0; i < pos.count; i++) {
+      const p = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+      const v = uv.getY(i);
+      if (v < 0.05) seamPts.push(p);
+      if (v > 0.95) cuffPts.push(p);
+    }
+  }
+
+  if (seamPts.length >= 4 && cuffPts.length >= 4) {
+    const seamCenter = seamPts.reduce((acc, p) => acc.add(p), new THREE.Vector3()).divideScalar(seamPts.length);
+    const cuffCenter = cuffPts.reduce((acc, p) => acc.add(p), new THREE.Vector3()).divideScalar(cuffPts.length);
+    axisLocal = cuffCenter.clone().sub(seamCenter).normalize();
+    lengthM = seamCenter.distanceTo(cuffCenter);
+    pivotLocal = seamCenter;
+    let maxR = 0;
+    for (const p of seamPts) maxR = Math.max(maxR, p.distanceTo(seamCenter));
+    openingRadiusM = maxR > 0 ? maxR : 0.05;
+  } else {
+    geom.computeBoundingBox();
+    const box = geom.boundingBox!;
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const dims = [size.x, size.y, size.z];
+    const axisIdx = dims.indexOf(Math.max(...dims));
+    axisLocal = new THREE.Vector3();
+    axisLocal.setComponent(axisIdx, Math.sign(center.getComponent(axisIdx)) || (side === 'left' ? 1 : -1));
+    lengthM = dims[axisIdx];
+    openingRadiusM = Math.max(...dims.filter((_, i) => i !== axisIdx)) / 2;
+    pivotLocal = center.clone();
+    pivotLocal.x = side === 'left' ? box.min.x : box.max.x;
+  }
+
   const restAxisParent = axisLocal.clone().applyQuaternion(rest.quaternion).normalize();
   return {
     node,
@@ -193,6 +285,7 @@ export function describeSleeve(
     openingRadiusM,
     minAbductionRad: Math.asin(Math.min(1, openingRadiusM / Math.max(lengthM, 1e-6))),
     rootToParent: rootToParent.clone().invert(),
+    pivotLocal,
   };
 }
 
@@ -217,10 +310,9 @@ export function clampAbduction(dir: THREE.Vector3, side: 'left' | 'right', minAb
 
 /**
  * Articulates sleeves by composing a swing rotation with the preserved rest transform:
- *   q_local = q_swing · q_rest,  position = p_rest,  scale = s_rest
+ *   q_local = q_swing · q_rest,  position = p_rest + pivotInParent - q_swing · pivotInParent,  scale = s_rest
  * where q_swing rotates the rest axis onto the observed upper-arm direction, both expressed
- * in the sleeve's parent (garment-local) frame. Rotation is about the node origin, which is
- * the sleeve seam in these assets.
+ * in the sleeve's parent (garment-local) frame. Rotation is about the physical armhole seam pivot.
  */
 export class SleeveRig {
   readonly sleeves: SleeveDescriptor[];
@@ -267,14 +359,17 @@ export class SleeveRig {
       if (obs) {
         this._target.copy(obs).applyQuaternion(s.rootToParent);
         clampAbduction(this._target, s.side, s.minAbductionRad, this._target);
+      } else {
+        this._target.copy(s.restAxisParent);
       }
-      else this._target.copy(s.restAxisParent);
       const cur = this.smoothed.get(s)!;
       cur.lerp(this._target, alpha).normalize();
 
       this._swing.setFromUnitVectors(s.restAxisParent, cur);
       s.node.quaternion.copy(this._swing).multiply(s.rest.quaternion);
-      s.node.position.copy(s.rest.position);
+
+      const pivotInParent = s.pivotLocal.clone().multiply(s.rest.scale).applyQuaternion(s.rest.quaternion);
+      s.node.position.copy(s.rest.position).add(pivotInParent).sub(pivotInParent.clone().applyQuaternion(this._swing));
       s.node.scale.copy(s.rest.scale);
     }
   }

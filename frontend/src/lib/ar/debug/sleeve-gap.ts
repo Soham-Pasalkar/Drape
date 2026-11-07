@@ -30,13 +30,8 @@ function seamRing(geom: THREE.BufferGeometry, sleeveWorld: THREE.Matrix4, torsoC
     if (Math.abs(v) < 1e-4) rows['0'].push(i);
     else if (Math.abs(v - 1) < 1e-4) rows['1'].push(i);
   }
-  const centroidDist = (ix: number[]) => {
-    if (!ix.length) return Infinity;
-    const c = new THREE.Vector3();
-    for (const i of ix) c.add(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(sleeveWorld));
-    return c.divideScalar(ix.length).distanceTo(torsoCentreWorld);
-  };
-  return centroidDist(rows['0']) <= centroidDist(rows['1']) ? rows['0'] : rows['1'];
+  // In DRAPE assets, v=0 is the armhole seam ring (welded to the torso armhole opening at rest)
+  return rows['0'].length ? rows['0'] : rows['1'];
 }
 
 export function computeSleeveGaps(torso: THREE.Mesh, sleeves: THREE.Mesh[]): SleeveGap[] {

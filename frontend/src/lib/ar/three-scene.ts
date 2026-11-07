@@ -648,7 +648,7 @@ export class ThreeSceneManager {
   getDiagnostics(): SceneDiagnostics {
     const info = this.renderer?.info.render;
     return {
-      garment: this.active ? this.active.diagnostics(this.bodyProxy, this.bodyRoot, this.tracking) : null,
+      garment: this.active ? this.active.diagnostics(this.bodyProxy, this.bodyRoot, this.tracking, this.camera) : null,
       renderMs: this.lastRenderMs,
       garmentUpdateMs: this.lastGarmentMs,
       contextLost: this.contextLost,

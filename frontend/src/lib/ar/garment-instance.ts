@@ -20,8 +20,11 @@ import { GarmentMetadata } from './types';
 import { MHRBodyProxy } from './mhr-body-proxy';
 import {
   computeSemanticAnchor,
+  applyNecklineOffset,
+  captureRestTransforms,
   SleeveRig,
   SemanticAnchorResult,
+  bodyDirToGarment,
 } from './garment-rig';
 import {
   TriangleBVH,
@@ -136,6 +139,13 @@ export interface GarmentDiagnostics {
     maxStrainPct: number;
   };
   meshes: { name: string; role: MeshRole; vertices: number }[];
+  neckline?: {
+    garmentNecklineLocal: [number, number, number];
+    bodyNeckLocal: [number, number, number];
+    necklineDispMm?: number;
+    projectedDisplacementPx?: number;
+    appliedOffsetY: number;
+  };
 }
 
 const GRAVITY_WORLD = new THREE.Vector3(0, -9.81, 0);
@@ -170,6 +180,7 @@ export class GarmentInstance {
   readonly anchorGroup: THREE.Group;
   readonly gltfRoot: THREE.Object3D;
   readonly anchor: SemanticAnchorResult;
+  readonly neckline: THREE.Vector3;
   readonly meshes: MeshRecord[] = [];
   readonly sleeveRig: SleeveRig;
   readonly bboxLocal: THREE.Box3;
@@ -219,8 +230,17 @@ export class GarmentInstance {
       (this as { seamWidthM: number | null }).seamWidthM = Math.abs(this.anchor.featurePoints[0].x - this.anchor.featurePoints[1].x);
     }
 
-    // Sleeve articulation removed (2026-11-07 fix, item 5): sleeves stay rigid and are bound to the torso seam.
-    this.sleeveRig = new SleeveRig([]);
+    // Neckline reference from geometry or anchor
+    this.neckline = this.anchor.neckline ? this.anchor.neckline.clone() : this.anchor.anchor.clone();
+    if (metadata.fittingProfile?.necklineOffsetY) {
+      const offset = metadata.fittingProfile.necklineOffsetY;
+      applyNecklineOffset(this.anchorGroup, offset, metadata.construction?.simulationMesh);
+      this.neckline.y += offset;
+    }
+
+    // Capture rest transforms and initialize dynamic sleeve rig
+    const rest = captureRestTransforms(this.anchorGroup);
+    this.sleeveRig = SleeveRig.fromGarment(this.anchorGroup, metadata, rest);
     const attachSleeves = metadata.construction?.sleeves !== 'none';
     const sleeveNames = new Set(['left_sleeve', 'right_sleeve']);
 
@@ -282,6 +302,10 @@ export class GarmentInstance {
     const nP = simRest.length / 3;
     const render = record.restPositions;
     const nV = render.length / 3;
+
+    if (nP === nV) {
+      simRest.set(render);
+    }
 
     // Sanity: both must be in the same (mesh-local) space.
     const bbox = (a: Float32Array) => new THREE.Box3().setFromArray(a);
@@ -484,6 +508,13 @@ export class GarmentInstance {
       const idx = b.torso.indices!;
       const m = b.torsoToSleeveLin.elements;
       b.out.set(b.sleeve.restPositions);
+
+      const slNode = b.sleeve.mesh;
+      const qRel = slNode.quaternion;
+      const pRel = slNode.position;
+      const qInv = qRel.clone().invert();
+      const isSwung = Math.abs(qRel.w) < 0.9999 || pRel.lengthSq() > 1e-8;
+
       for (let k = 0; k < b.verts.length; k++) {
         const t = b.tri[k] * 3;
         let dx = 0, dy = 0, dz = 0;
@@ -492,9 +523,20 @@ export class GarmentInstance {
           dx += bw * (cur[vi] - rest[vi]); dy += bw * (cur[vi + 1] - rest[vi + 1]); dz += bw * (cur[vi + 2] - rest[vi + 2]);
         }
         const s3 = b.verts[k] * 3, wk = b.w[k];
-        b.out[s3] += wk * (m[0] * dx + m[3] * dy + m[6] * dz);
-        b.out[s3 + 1] += wk * (m[1] * dx + m[4] * dy + m[7] * dz);
-        b.out[s3 + 2] += wk * (m[2] * dx + m[5] * dy + m[8] * dz);
+        const rx = b.sleeve.restPositions[s3] + (m[0] * dx + m[3] * dy + m[6] * dz);
+        const ry = b.sleeve.restPositions[s3 + 1] + (m[1] * dx + m[4] * dy + m[7] * dz);
+        const rz = b.sleeve.restPositions[s3 + 2] + (m[2] * dx + m[5] * dy + m[8] * dz);
+
+        if (isSwung) {
+          const vComp = new THREE.Vector3(rx - pRel.x, ry - pRel.y, rz - pRel.z).applyQuaternion(qInv);
+          b.out[s3] = b.sleeve.restPositions[s3] * (1 - wk) + vComp.x * wk;
+          b.out[s3 + 1] = b.sleeve.restPositions[s3 + 1] * (1 - wk) + vComp.y * wk;
+          b.out[s3 + 2] = b.sleeve.restPositions[s3 + 2] * (1 - wk) + vComp.z * wk;
+        } else {
+          b.out[s3] = b.sleeve.restPositions[s3] + wk * (m[0] * dx + m[3] * dy + m[6] * dz);
+          b.out[s3 + 1] = b.sleeve.restPositions[s3 + 1] + wk * (m[1] * dx + m[4] * dy + m[7] * dz);
+          b.out[s3 + 2] = b.sleeve.restPositions[s3 + 2] + wk * (m[2] * dx + m[5] * dy + m[8] * dz);
+        }
       }
       this.writeGeometry(b.sleeve, b.out);
     }
@@ -546,6 +588,17 @@ export class GarmentInstance {
     }
     this.wrapper.scale.copy(this.currentScale);
     this.wrapper.updateWorldMatrix(true, true);
+
+    // 2. Sleeve articulation: compose arm swing with preserved rest transforms
+    const dirs = (this.metadata.construction?.sleeves === 'long' && p.fullArmDirsBody)
+      ? p.fullArmDirsBody
+      : p.armDirsBody;
+    const armDirGarment = {
+      left: dirs.left ? bodyDirToGarment(dirs.left, this.currentScale) : null,
+      right: dirs.right ? bodyDirToGarment(dirs.right, this.currentScale) : null,
+    };
+    this.sleeveRig.update(armDirGarment, p.dt);
+    if (this.seamBindings.length > 0) this.updateSeamBindings();
 
     // 3. Correspondence + deformation only when the configuration changed.
     const s = this.currentScale;
@@ -696,7 +749,7 @@ export class GarmentInstance {
 
   // ------------------------------------------------------------------------- diagnostics
 
-  diagnostics(proxy: MHRBodyProxy, bodyRoot: THREE.Object3D, tracking: boolean): GarmentDiagnostics {
+  diagnostics(proxy: MHRBodyProxy, bodyRoot: THREE.Object3D, tracking: boolean, camera?: THREE.PerspectiveCamera): GarmentDiagnostics {
     const bodyAnchor = proxy.getAttachmentAnchor(this.metadata.modelAnchor.type);
     const worldG = this.anchorGroup.localToWorld(this.anchor.anchor.clone());
     const worldB = bodyRoot.localToWorld(bodyAnchor.clone());
@@ -717,6 +770,23 @@ export class GarmentInstance {
     }
     const sim = this.sim;
     const t3 = (v: THREE.Vector3): [number, number, number] => [v.x, v.y, v.z];
+
+    const bodyNeckAnchor = proxy.getAttachmentAnchor('neckline_center');
+    let projectedDisplacementPx: number | undefined;
+    let necklineDispMm: number | undefined;
+    if (this.neckline) {
+      const worldGNeck = this.anchorGroup.localToWorld(this.neckline.clone());
+      const worldBNeck = bodyRoot.localToWorld(bodyNeckAnchor.clone());
+      necklineDispMm = worldGNeck.distanceTo(worldBNeck) * 1000;
+      if (camera) {
+        const vG = worldGNeck.project(camera);
+        const vB = worldBNeck.project(camera);
+        const h = 720;
+        const dxPx = ((vG.x - vB.x) / 2) * (h * camera.aspect);
+        const dyPx = ((vG.y - vB.y) / 2) * h;
+        projectedDisplacementPx = Math.hypot(dxPx, dyPx);
+      }
+    }
     return {
       id: this.metadata.id,
       bboxMin: t3(this.bboxLocal.min),
@@ -760,6 +830,15 @@ export class GarmentInstance {
             stepMs: 0, fixedSteps: 0, collisions: 0, maxPenetrationMm: 0, maxStrainPct: 0,
           },
       meshes: this.meshes.map((m) => ({ name: m.mesh.name || '(unnamed)', role: m.role, vertices: m.restPositions.length / 3 })),
+      neckline: this.neckline
+        ? {
+            garmentNecklineLocal: t3(this.neckline),
+            bodyNeckLocal: t3(bodyNeckAnchor),
+            necklineDispMm,
+            projectedDisplacementPx,
+            appliedOffsetY: this.metadata.fittingProfile?.necklineOffsetY ?? 0,
+          }
+        : undefined,
     };
   }
 

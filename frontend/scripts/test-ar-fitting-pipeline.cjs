@@ -188,18 +188,18 @@ suite('Arm articulation');
   const rig = makeRig('tshirt-crewneck');
   const base = { pos: new THREE.Vector3(0, 0, -1.5) };
   run(rig, base, 40);
-  // 2026-11-07 fix, item 5: sleeves are NOT articulated; arm directions are still recovered (limb occluders use them).
+  // Dynamic sleeve articulation restored (Milestone 0.6): sleeves articulate with detected arm directions.
   const sleeveNodes = ['left_sleeve', 'right_sleeve'].map((n) => rig.inst.gltfRoot.getObjectByName(n));
   const sleeveRest = sleeveNodes.map((n) => n.quaternion.clone());
-  const sleevesAtRest = () => sleeveNodes.every((n, k) => Math.abs(n.quaternion.dot(sleeveRest[k])) > 1 - 1e-12);
-  test('both arms raised: body-local arm directions recovered; sleeves stay rigid', () => {
+  const sleevesAtRest = () => sleeveNodes.every((n, k) => Math.abs(n.quaternion.dot(sleeveRest[k])) > 1 - 1e-4);
+  test('both arms raised: body-local arm directions recovered; sleeves articulate', () => {
     const up = { ...base, armL: new THREE.Vector3(0.6, 0.8, 0), armR: new THREE.Vector3(-0.6, 0.8, 0) };
     const r = run(rig, up, 40);
     const l = new THREE.Vector3(...r.fit.armDirectionsBody.left);
     const rr = new THREE.Vector3(...r.fit.armDirectionsBody.right);
     assert(l.angleTo(new THREE.Vector3(0.6, 0.8, 0)) < 2 * DEG, `left ${l.toArray()}`);
     assert(rr.angleTo(new THREE.Vector3(-0.6, 0.8, 0)) < 2 * DEG, `right ${rr.toArray()}`);
-    assert(sleevesAtRest(), 'sleeves must not rotate');
+    assert(!sleevesAtRest(), 'sleeves must articulate under arm input');
   });
   test('arm directions are body-local: unchanged when the whole body is yawed 30°', () => {
     const up = { ...base, yaw: 30 * DEG, armL: new THREE.Vector3(0.6, 0.8, 0), armR: new THREE.Vector3(-0.6, 0.8, 0) };
@@ -207,12 +207,12 @@ suite('Arm articulation');
     const l = new THREE.Vector3(...r.fit.armDirectionsBody.left);
     assert(l.angleTo(new THREE.Vector3(0.6, 0.8, 0)) < 3 * DEG, `left ${l.toArray().map((v) => v.toFixed(3))}`);
   });
-  test('one arm raised: that arm direction recovered, the other down; sleeves stay rigid', () => {
+  test('one arm raised: that arm direction recovered, the other down; sleeves articulate', () => {
     const one = { ...base, armL: new THREE.Vector3(0.3, 0.95, 0.1) };
     const r = run(rig, one, 40);
     assert(new THREE.Vector3(...r.fit.armDirectionsBody.left).angleTo(new THREE.Vector3(0.3, 0.95, 0.1)) < 3 * DEG);
     assert(r.fit.armDirectionsBody.right[1] < -0.9);
-    assert(sleevesAtRest());
+    assert(Math.abs(sleeveNodes[0].quaternion.dot(sleeveRest[0])) < 0.999, 'left sleeve must articulate');
   });
   test('arm forward (toward camera) uses world-landmark depth, not image x/y mixed with z', () => {
     const fwd = { ...base, armL: new THREE.Vector3(0.1, -0.2, 1) };
@@ -220,10 +220,10 @@ suite('Arm articulation');
     const l = new THREE.Vector3(...r.fit.armDirectionsBody.left);
     assert(l.z > 0.9, `forward component ${l.z}`);
   });
-  test('return to neutral', () => {
-    const r = run(rig, base, 60);
+  test('return to neutral: arm down and sleeves ease smoothly back to rest', () => {
+    const r = run(rig, base, 80);
     assert(r.fit.armDirectionsBody.left[1] < -0.95);
-    assert(sleevesAtRest());
+    assert(sleevesAtRest(), 'sleeves must return to rest');
   });
   test('limb joints project exactly onto their observed landmarks (occluders line up with the real arm)', () => {
     const bent = { ...base, armL: new THREE.Vector3(0.3, -1, 0.2), foreL: new THREE.Vector3(-0.6, 0.2, 0.8).normalize() };
@@ -247,7 +247,7 @@ suite('Arm articulation');
 }
 
 suite('Long sleeves with a bent elbow');
-test('shoulder→wrist chord is still recovered; the long sleeve stays rigid and attached (no articulation)', () => {
+test('shoulder→wrist chord is recovered and the long sleeve articulates with the chord', () => {
   const pose = { pos: new THREE.Vector3(0, 0, -1.5), armL: new THREE.Vector3(0.35, -1, 0.1), foreL: new THREE.Vector3(-0.2, 0.3, 1).normalize() };
   const S = SUBJECT;
   const elbow = pose.armL.clone().normalize().multiplyScalar(S.upper);
@@ -258,7 +258,7 @@ test('shoulder→wrist chord is still recovered; the long sleeve stays rigid and
   const r = run(longRig, pose, 80);
   const c = new THREE.Vector3(...r.fit.fullArmDirectionsBody.left);
   assert(c.angleTo(chord) < 4 * DEG, `chord ${(c.angleTo(chord) / DEG).toFixed(1)}° off`);
-  assert(Math.abs(node.quaternion.dot(q0)) > 1 - 1e-12, 'long sleeve must not rotate');
+  assert(Math.abs(node.quaternion.dot(q0)) < 0.999, 'long sleeve must articulate with the arm chord');
 });
 
 suite('Garment placement for every asset (projected anchor alignment)');
