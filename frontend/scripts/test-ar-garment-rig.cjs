@@ -104,7 +104,7 @@ test('GarmentInstance exposes calibrated neckline diagnostics and applied offset
 
   const diag = inst.diagnostics(proxy, root, true);
   assert(diag.neckline !== undefined, 'garment diagnostics must include neckline block');
-  near(diag.neckline.appliedOffsetY, 0.013, 1e-6, 'applied offset matches fittingProfile (0.013 m = +13 mm)');
+  near(diag.neckline.appliedOffsetY, 0.023, 1e-6, 'applied offset matches fittingProfile (0.023 m = +23 mm)');
   near(diag.neckline.effectiveWorldOffsetMm, diag.neckline.appliedOffsetY * diag.scale[1] * 1000, 1e-4, 'effective world offset accounts for wrapper scale');
   assert(diag.neckline.garmentId === 'tshirt-crewneck', 'diag includes garmentId');
   assert(diag.neckline.garmentNecklineBodyLocal !== undefined, 'includes body-local garment neckline');
@@ -145,9 +145,9 @@ test('base-of-neck diagnostic reference and signed displacement convention', () 
   });
 
   const diag = inst.diagnostics(proxy, root, true);
-  // With 13 mm offset, the collar sits ~2 mm below the suprasternal notch: signed delta is ~ -2 mm
-  assert(diag.neckline.necklineVerticalDeltaMm > -10 && diag.neckline.necklineVerticalDeltaMm < 10,
-    `necklineVerticalDeltaMm within natural collar band (-10 to +10 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
+  // With 23 mm offset, the collar sits ~8 mm above the suprasternal notch: signed delta is ~ +8 mm
+  assert(diag.neckline.necklineVerticalDeltaMm > 0 && diag.neckline.necklineVerticalDeltaMm < 20,
+    `necklineVerticalDeltaMm within natural collar band (+0 to +20 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
 });
 
 test('collar normal recalculation and simulation rest consistency', () => {
@@ -424,6 +424,147 @@ test('rapid arm movement produces finite values with zero NaN or quaternion flip
       assert(Number.isFinite(s.node.scale.x), 'scale finite');
     }
   }
+});
+
+suite('Stable sleeve-arm depth occlusion (Milestone 0.8)');
+
+test('crewneck upper-body garments have +23 mm neckline offset configured', () => {
+  const crewTops = ['tshirt-crewneck', 'tshirt-oversized', 'tshirt-fitted', 'top-longsleeve'];
+  for (const id of crewTops) {
+    const meta = getGarmentById(id);
+    assert(meta !== undefined, `${id} must exist in registry`);
+    near(meta.fittingProfile.necklineOffsetY, 0.023, 1e-6, `${id} necklineOffsetY must be 0.023 m (+23 mm)`);
+  }
+});
+
+test('short-sleeve garments exclude upper-arm occluders while keeping forearm and thigh occluders active', () => {
+  const proxy = new MHRBodyProxy();
+  const joints = {
+    left_shoulder: new THREE.Vector3(0.18, 0.25, 0),
+    left_elbow: new THREE.Vector3(0.28, 0.05, 0),
+    left_wrist: new THREE.Vector3(0.35, -0.15, 0),
+    right_shoulder: new THREE.Vector3(-0.18, 0.25, 0),
+    right_elbow: new THREE.Vector3(-0.28, 0.05, 0),
+    right_wrist: new THREE.Vector3(-0.35, -0.15, 0),
+    left_hip: new THREE.Vector3(0.12, -0.25, 0),
+    left_knee: new THREE.Vector3(0.12, -0.65, 0),
+    right_hip: new THREE.Vector3(-0.12, -0.25, 0),
+    right_knee: new THREE.Vector3(-0.12, -0.65, 0),
+  };
+
+  // Configure for short sleeves: upper arms are covered by virtual sleeves and must NOT write depth
+  proxy.setOcclusionLimbs(['left_forearm', 'right_forearm', 'left_thigh', 'right_thigh']);
+  proxy.updateLimbs(joints);
+
+  const leftUpperArmOcc = proxy.getLimbOcclusionMesh('left_upper_arm');
+  const rightUpperArmOcc = proxy.getLimbOcclusionMesh('right_upper_arm');
+  const leftForearmOcc = proxy.getLimbOcclusionMesh('left_forearm');
+  const rightForearmOcc = proxy.getLimbOcclusionMesh('right_forearm');
+  const leftThighOcc = proxy.getLimbOcclusionMesh('left_thigh');
+  const rightThighOcc = proxy.getLimbOcclusionMesh('right_thigh');
+
+  assert(leftUpperArmOcc !== undefined, 'left upper arm mesh exists');
+  assert(rightUpperArmOcc !== undefined, 'right upper arm mesh exists');
+  assert(leftForearmOcc !== undefined, 'left forearm mesh exists');
+  assert(rightForearmOcc !== undefined, 'right forearm mesh exists');
+
+  // Upper arms MUST NOT write depth (hidden)
+  assert(!leftUpperArmOcc.visible, 'left upper arm occlusion must be disabled for short sleeves');
+  assert(!rightUpperArmOcc.visible, 'right upper arm occlusion must be disabled for short sleeves');
+
+  // Forearms and thighs MUST remain active (visible)
+  assert(leftForearmOcc.visible, 'left forearm occlusion must remain active');
+  assert(rightForearmOcc.visible, 'right forearm occlusion must remain active');
+  assert(leftThighOcc.visible, 'left thigh occlusion must remain active');
+  assert(rightThighOcc.visible, 'right thigh occlusion must remain active');
+});
+
+test('long-sleeve garments exclude both upper-arm and forearm occluders', () => {
+  const proxy = new MHRBodyProxy();
+  const joints = {
+    left_shoulder: new THREE.Vector3(0.18, 0.25, 0),
+    left_elbow: new THREE.Vector3(0.28, 0.05, 0),
+    left_wrist: new THREE.Vector3(0.35, -0.15, 0),
+    right_shoulder: new THREE.Vector3(-0.18, 0.25, 0),
+    right_elbow: new THREE.Vector3(-0.28, 0.05, 0),
+    right_wrist: new THREE.Vector3(-0.35, -0.15, 0),
+    left_hip: new THREE.Vector3(0.12, -0.25, 0),
+    left_knee: new THREE.Vector3(0.12, -0.65, 0),
+    right_hip: new THREE.Vector3(-0.12, -0.25, 0),
+    right_knee: new THREE.Vector3(-0.12, -0.65, 0),
+  };
+
+  proxy.setOcclusionLimbs(['left_thigh', 'right_thigh']);
+  proxy.updateLimbs(joints);
+
+  const leftUpperArmOcc = proxy.getLimbOcclusionMesh('left_upper_arm');
+  const leftForearmOcc = proxy.getLimbOcclusionMesh('left_forearm');
+  const rightUpperArmOcc = proxy.getLimbOcclusionMesh('right_upper_arm');
+  const rightForearmOcc = proxy.getLimbOcclusionMesh('right_forearm');
+  const leftThighOcc = proxy.getLimbOcclusionMesh('left_thigh');
+
+  assert(!leftUpperArmOcc.visible, 'left upper arm occlusion must be disabled for long sleeves');
+  assert(!leftForearmOcc.visible, 'left forearm occlusion must be disabled for long sleeves');
+  assert(!rightUpperArmOcc.visible, 'right upper arm occlusion must be disabled for long sleeves');
+  assert(!rightForearmOcc.visible, 'right forearm occlusion must be disabled for long sleeves');
+  assert(leftThighOcc.visible, 'thigh occlusion remains active');
+});
+
+test('sleeveless tops retain all limb occluders (upper arms are exposed)', () => {
+  const proxy = new MHRBodyProxy();
+  const joints = {
+    left_shoulder: new THREE.Vector3(0.18, 0.25, 0),
+    left_elbow: new THREE.Vector3(0.28, 0.05, 0),
+    left_wrist: new THREE.Vector3(0.35, -0.15, 0),
+    right_shoulder: new THREE.Vector3(-0.18, 0.25, 0),
+    right_elbow: new THREE.Vector3(-0.28, 0.05, 0),
+    right_wrist: new THREE.Vector3(-0.35, -0.15, 0),
+    left_hip: new THREE.Vector3(0.12, -0.25, 0),
+    left_knee: new THREE.Vector3(0.12, -0.65, 0),
+    right_hip: new THREE.Vector3(-0.12, -0.25, 0),
+    right_knee: new THREE.Vector3(-0.12, -0.65, 0),
+  };
+
+  proxy.setOcclusionLimbs(null);
+  proxy.updateLimbs(joints);
+
+  const leftUpperArmOcc = proxy.getLimbOcclusionMesh('left_upper_arm');
+  const leftForearmOcc = proxy.getLimbOcclusionMesh('left_forearm');
+
+  assert(leftUpperArmOcc.visible, 'left upper arm occlusion visible for sleeveless tops');
+  assert(leftForearmOcc.visible, 'left forearm occlusion visible for sleeveless tops');
+});
+
+test('body proxy debug wireframes display all active limbs even when limb occlusion is filtered', () => {
+  const proxy = new MHRBodyProxy();
+  const joints = {
+    left_shoulder: new THREE.Vector3(0.18, 0.25, 0),
+    left_elbow: new THREE.Vector3(0.28, 0.05, 0),
+    left_wrist: new THREE.Vector3(0.35, -0.15, 0),
+    right_shoulder: new THREE.Vector3(-0.18, 0.25, 0),
+    right_elbow: new THREE.Vector3(-0.28, 0.05, 0),
+    right_wrist: new THREE.Vector3(-0.35, -0.15, 0),
+    left_hip: new THREE.Vector3(0.12, -0.25, 0),
+    left_knee: new THREE.Vector3(0.12, -0.65, 0),
+    right_hip: new THREE.Vector3(-0.12, -0.25, 0),
+    right_knee: new THREE.Vector3(-0.12, -0.65, 0),
+  };
+
+  proxy.setOcclusionLimbs(['left_forearm', 'right_forearm']);
+  proxy.setDebugVisible(true);
+  proxy.updateLimbs(joints);
+
+  // Occlusion mesh for upper arm is hidden
+  const leftUpperArmOcc = proxy.getLimbOcclusionMesh('left_upper_arm');
+  assert(!leftUpperArmOcc.visible, 'occlusion mesh is disabled');
+
+  // But debug mesh for upper arm remains visible for developer inspection
+  let debugMesh;
+  proxy.group.traverse((o) => {
+    if (o.isMesh && o.name === 'mhr_debug_left_upper_arm') debugMesh = o;
+  });
+  assert(debugMesh !== undefined, 'debug mesh exists');
+  assert(debugMesh.visible, 'debug wireframe remains visible for developer inspection');
 });
 
 finish('test-ar-garment-rig');

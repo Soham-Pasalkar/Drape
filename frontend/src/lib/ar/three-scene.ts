@@ -283,6 +283,18 @@ export class ThreeSceneManager {
     this.attachRegistrationCube();
     // Legs are inside skirts / dresses; arms are outside every garment's torso panel.
     this.bodyProxy.setCollisionCapsules(garment.category === 'tops' ? [] : ['left_thigh', 'right_thigh']);
+    // Configure depth occlusion based on garment sleeve coverage:
+    // - Short sleeves cover upper arms: exclude upper arms from depth occlusion so real skin does not punch through sleeves.
+    //   Forearms remain active so real forearms/hands in front of the torso properly occlude the shirt.
+    // - Long sleeves cover upper arms and forearms: exclude both from depth occlusion.
+    // - Sleeveless tops / dresses without sleeves: upper arms are exposed, so all limbs can occlude.
+    if (garment.construction?.sleeves === 'short') {
+      this.bodyProxy.setOcclusionLimbs(['left_forearm', 'right_forearm', 'left_thigh', 'right_thigh']);
+    } else if (garment.construction?.sleeves === 'long') {
+      this.bodyProxy.setOcclusionLimbs(['left_thigh', 'right_thigh']);
+    } else {
+      this.bodyProxy.setOcclusionLimbs(null);
+    }
   }
 
   get activeGarment(): GarmentInstance | null {

@@ -114,6 +114,12 @@ export class MHRBodyProxy {
    * so for tops only the torso collides; skirts / dresses add the thighs (legs are inside).
    */
   private collisionCapsules: Set<string> | null = null;
+  /**
+   * Limb capsules that participate in depth occlusion (null = all). When wearing garments
+   * with sleeves, upper-arm occluders must be disabled so they do not punch depth holes
+   * through the virtual sleeves covering those limbs.
+   */
+  private occlusionLimbs: Set<string> | null = null;
 
   private occlusionMaterial: THREE.MeshBasicMaterial;
   private limbOcclusionMeshes: Map<string, THREE.Mesh> = new Map();
@@ -318,7 +324,8 @@ export class MHRBodyProxy {
         occ.position.copy(p1);
         occ.quaternion.setFromUnitVectors(up, dir);
         occ.scale.set(c.radius, len, c.radius);
-        occ.visible = true;
+        const isOccluder = !this.occlusionLimbs || this.occlusionLimbs.has(c.name);
+        occ.visible = isOccluder;
         dbg.position.copy(occ.position);
         dbg.quaternion.copy(occ.quaternion);
         dbg.scale.copy(occ.scale);
@@ -334,12 +341,30 @@ export class MHRBodyProxy {
   private debugVisible = false;
   private syncDebugLimbVisibility(): void {
     this.limbDebugMeshes.forEach((dbg, name) => {
-      dbg.visible = this.debugVisible && this.limbOcclusionMeshes.get(name)!.visible;
+      const active = this.activeCapsules.some((c) => c.name === name);
+      dbg.visible = this.debugVisible && active;
     });
   }
 
   setCollisionCapsules(names: string[] | null): void {
     this.collisionCapsules = names ? new Set(names) : null;
+  }
+
+  /**
+   * Limb capsules that participate in depth occlusion (null = all tracked limb capsules).
+   * When wearing garments with sleeves, upper-arm occluders must be disabled so they
+   * do not punch depth holes through the virtual sleeves covering those limbs.
+   */
+  setOcclusionLimbs(names: string[] | null): void {
+    this.occlusionLimbs = names ? new Set(names) : null;
+  }
+
+  getOcclusionLimbs(): Set<string> | null {
+    return this.occlusionLimbs ? new Set(this.occlusionLimbs) : null;
+  }
+
+  getLimbOcclusionMesh(name: string): THREE.Mesh | undefined {
+    return this.limbOcclusionMeshes.get(name);
   }
 
   /** Interpolated torso cross-section at body-local height y, or null outside the torso. */
