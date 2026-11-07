@@ -48,8 +48,9 @@ export class PoseTracker {
   private lastInferenceAt = 0;
   public stats: PoseTrackerStats = { inferenceFps: 0, inferenceMs: 0, frameCount: 0, delegate: 'none' };
 
-  constructor() {
-    this.smoother = new LandmarkSmoother();
+  /** The smoother is injected so the live app and replay share one instance (pipeline/frame-step.ts). */
+  constructor(smoother: LandmarkSmoother = new LandmarkSmoother()) {
+    this.smoother = smoother;
   }
 
   /**

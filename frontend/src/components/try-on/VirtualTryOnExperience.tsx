@@ -10,7 +10,7 @@
  *        └─ requestAnimationFrame render loop (display rate):
  *             1. container size (ResizeObserver) + video size ─► VideoDisplayTransform
  *             2. intrinsics + display transform ─► projection matrix (only when changed)
- *             3. NEW pose frame? ─► FittingEngine.processFrame (once per pose frame)
+ *             3. NEW pose frame? ─► FrameStep.fit → FittingEngine.processFrame (smoothing: FrameStep.smoother, per pose frame)
  *                                  ─► ThreeSceneManager.setFrameTarget
  *             4. ThreeSceneManager.render: pose smoothing, sleeves, deformation, XPBD, draw
  *             5. ~10 Hz React UI / diagnostics update from the latest fit
@@ -51,6 +51,7 @@ import { CameraManager } from "@/lib/ar/camera";
 import { PoseTracker, PoseTrackerCallbacks } from "@/lib/ar/pose-tracker";
 import { ThreeSceneManager } from "@/lib/ar/three-scene";
 import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
+import { FrameStep } from "@/lib/ar/pipeline/frame-step";
 import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC } from "@/lib/ar/coordinates";
 import { computeRegistration } from "@/lib/ar/debug/registration";
 import type { DebugMaterialMode } from "@/lib/ar/debug/stage1-probe";
@@ -112,6 +113,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const poseCallbacksRef = useRef<PoseTrackerCallbacks | null>(null);
   const threeSceneRef = useRef<ThreeSceneManager | null>(null);
   const fittingEngineRef = useRef<FittingEngine | null>(null);
+  const frameStepRef = useRef<FrameStep | null>(null);
   const renderRafRef = useRef<number | null>(null);
   const sessionRef = useRef<number>(0); // invalidates async work from a previous session
 
@@ -191,6 +193,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     threeSceneRef.current?.dispose();
     threeSceneRef.current = null;
     fittingEngineRef.current = null;
+    frameStepRef.current = null;
     poseFrameRef.current = { keypoints: null, landmarks: [], frameId: 0 };
     processedFrameIdRef.current = 0;
     latestFitRef.current = null;
@@ -390,7 +393,9 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       threeSceneRef.current = scene;
       scene.resize(threeContainerRef.current.clientWidth, threeContainerRef.current.clientHeight);
 
-      const fitting = new FittingEngine(width, height);
+      const frameStep = new FrameStep(width, height);
+      frameStepRef.current = frameStep;
+      const fitting = frameStep.engine;
       fittingEngineRef.current = fitting;
       setIsCalibrated(false);
 
@@ -399,7 +404,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       if (session !== sessionRef.current) return;
       setFittingStatus("ready");
 
-      poseTrackerRef.current = new PoseTracker();
+      poseTrackerRef.current = new PoseTracker(frameStep.smoother);
       await startPoseTracking(session);
       if (session !== sessionRef.current) return;
 
@@ -441,7 +446,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
           if (pf.frameId !== processedFrameIdRef.current) {
             processedFrameIdRef.current = pf.frameId;
             if (pf.keypoints) {
-              const fit = fittingEngine.processFrame(pf.keypoints, selectedGarmentRef.current, vW, vH);
+              const fit = frameStepRef.current!.fit(pf.keypoints, selectedGarmentRef.current, vW, vH);
               latestFitRef.current = fit;
               sceneNow.setFrameTarget(fit, now);
               const dsp = displayRef.current;

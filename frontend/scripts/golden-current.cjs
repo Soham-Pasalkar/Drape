@@ -1,10 +1,10 @@
 /**
  * Driver for the CURRENT (refactored) pipeline, compared by test-ar-golden.cjs against the pre-refactor golden.
- * Same loop shape as the live app; registration via the extracted debug/registration.ts (T3).
+ * Same loop shape as the live app: FrameStep (T4) for smoothing + fitting, PoseSmoother inside the scene (T2),
+ * registration via debug/registration.ts (T3).
  */
 const { createScene } = require('./lib/scene-harness.cjs');
-const { FittingEngine } = require('../dist_test/fitting-engine.js');
-const { LandmarkSmoother } = require('../dist_test/landmark-smoother.js');
+const { FrameStep } = require('../dist_test/pipeline/frame-step.js');
 const { getGarmentById } = require('../dist_test/garment-registry.js');
 const { computeVideoDisplayTransform } = require('../dist_test/coordinates.js');
 const { computeRegistration } = require('../dist_test/debug/registration.js');
@@ -16,18 +16,18 @@ async function run(fixture) {
   const scene = createScene(Cw, Ch);
   await scene.loadGarment(meta);
   scene.setRegistrationVisible(true);
-  const engine = new FittingEngine(W, H);
-  const smoother = new LandmarkSmoother();
+  const step = new FrameStep(W, H);
+  const engine = step.engine;
   const d = computeVideoDisplayTransform(W, H, Cw, Ch, 'cover');
   const out = [];
   for (const fr of fixture.frames) {
     const now = fr.t;
     engine.calibrationManager.updateResolution(W, H);
     scene.setProjection(engine.calibrationManager.getIntrinsics(), d);
-    const kp = smoother.process(fr.raw, now, fr.world);
+    const kp = step.smooth(fr.raw, now, fr.world);
     let fit = null;
     if (kp) {
-      fit = engine.processFrame(kp, meta, W, H);
+      fit = step.fit(kp, meta, W, H);
       scene.setFrameTarget(fit, now);
     } else {
       scene.setFrameTarget(null, now);
