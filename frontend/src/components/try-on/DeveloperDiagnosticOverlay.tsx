@@ -411,6 +411,9 @@ export default function DeveloperDiagnosticOverlay({
             {m.frameDiag.garment && (
               <>
                 <Row k="Wrapper scale" v={v3(m.frameDiag.garment.wrapperScale, 3)} />
+                {m.frameDiag.garment.sleeveGaps?.map((g) => (
+                  <Row key={"gap-" + g.name} k={`${g.name} seam gap`} v={`min ${f(g.minCm, 2)} · med ${f(g.medianCm, 2)} · max ${f(g.maxCm, 2)} cm`} warn={g.maxCm >= 0.5} />
+                ))}
                 {m.frameDiag.garment.meshes.map((g) => (
                   <Row key={g.name} k={g.name} v={`size ${v3(g.sizeM, 2)} · Δanchor ${v3(g.centreRelAnchorM, 2)} · ${f(g.screen.w, 0)} px wide`} />
                 ))}

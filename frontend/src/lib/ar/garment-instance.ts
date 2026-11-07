@@ -20,10 +20,8 @@ import { GarmentMetadata } from './types';
 import { MHRBodyProxy } from './mhr-body-proxy';
 import {
   computeSemanticAnchor,
-  captureRestTransforms,
   SleeveRig,
   SemanticAnchorResult,
-  bodyDirToGarment,
 } from './garment-rig';
 import {
   TriangleBVH,
@@ -40,7 +38,25 @@ export interface SimulationData {
   anchorWeights: number[];
 }
 
-export type MeshRole = 'simulated' | 'deformed' | 'articulated' | 'rigid';
+/**
+ * attached — sleeves (2026-11-07 fix, item 5): rigid, NOT articulated; their seam region is bound to the torso
+ * surface (barycentric, from rest) so deformation / simulation of the torso never opens a gap at the armhole.
+ */
+export type MeshRole = 'simulated' | 'deformed' | 'attached' | 'articulated' | 'rigid';
+
+interface SeamBinding {
+  sleeve: MeshRecord;
+  torso: MeshRecord;
+  verts: Int32Array; // sleeve vertex indices with weight > 0
+  tri: Int32Array; // torso triangle per bound vertex
+  bary: Float32Array; // 3 per bound vertex
+  w: Float32Array; // seam weight per bound vertex (1 at the seam → 0 by mid-sleeve)
+  torsoToSleeveLin: THREE.Matrix3;
+  out: Float32Array;
+}
+
+/** Fraction of the sleeve length (from the seam) over which the torso-binding weight falls from 1 to 0. */
+const SEAM_BINDING_FALLOFF = 0.5;
 
 export interface MeshRecord {
   mesh: THREE.Mesh;
@@ -163,6 +179,7 @@ export class GarmentInstance {
   readonly simDisabledReason: string | null = null;
 
   private bvh: { version: number; bvh: TriangleBVH } | null = null;
+  private seamBindings: SeamBinding[] = [];
   private deformKey = '';
   private pendingKey = '';
   private lastBuildAt = -Infinity;
@@ -176,8 +193,6 @@ export class GarmentInstance {
   private readonly _meshWorldInvLin = new THREE.Matrix3();
   private readonly _gravity = new THREE.Vector3();
   private readonly _accel = new THREE.Vector3();
-  private readonly _armL = new THREE.Vector3();
-  private readonly _armR = new THREE.Vector3();
   private readonly _scaleTarget = new THREE.Vector3(1, 1, 1);
 
   private debugGroupGarment: THREE.Group | null = null;
@@ -204,9 +219,9 @@ export class GarmentInstance {
       (this as { seamWidthM: number | null }).seamWidthM = Math.abs(this.anchor.featurePoints[0].x - this.anchor.featurePoints[1].x);
     }
 
-    const rest = captureRestTransforms(gltfRoot);
-    this.sleeveRig = SleeveRig.fromGarment(this.anchorGroup, metadata, rest);
-    const articulated = new Set(this.sleeveRig.sleeves.map((s) => s.node));
+    // Sleeve articulation removed (2026-11-07 fix, item 5): sleeves stay rigid and are bound to the torso seam.
+    this.sleeveRig = new SleeveRig([]);
+    const attachSleeves = metadata.construction?.sleeves !== 'none';
     const sleeveNames = new Set(['left_sleeve', 'right_sleeve']);
 
     this.bboxLocal = new THREE.Box3();
@@ -221,8 +236,7 @@ export class GarmentInstance {
       if (!pos) return;
       plainFloat32Attribute(geom, 'normal');
       let role: MeshRole;
-      if (articulated.has(mesh)) role = 'articulated';
-      else if (sleeveNames.has(mesh.name)) role = 'rigid';
+      if (sleeveNames.has(mesh.name)) role = attachSleeves ? 'attached' : 'rigid';
       else role = 'deformed';
 
       const restPositions = new Float32Array(pos.array as Float32Array);
@@ -254,6 +268,7 @@ export class GarmentInstance {
     (this as { sim: SimulationBinding | null }).sim = sim.binding;
     (this as { simDisabledReason: string | null }).simDisabledReason = sim.reason;
     if (sim.binding) sim.binding.record.role = 'simulated';
+    this.seamBindings = this.buildSeamBindings();
   }
 
   private bindSimulation(simData: SimulationData | null): { binding: SimulationBinding | null; reason: string | null } {
@@ -364,6 +379,7 @@ export class GarmentInstance {
       rec.field = r.field;
       rec.displacedVertices = r.displaced;
       if (rec.role === 'deformed') this.writeGeometry(rec, rec.deformedPositions);
+      if (rec.role === 'deformed' && rec.mesh.name === this.metadata.construction?.simulationMesh) this.updateSeamBindings();
     }
 
     if (this.sim) {
@@ -406,6 +422,84 @@ export class GarmentInstance {
     geom.computeBoundingBox();
   }
 
+  /**
+   * Seam binding: sleeve vertices near the seam are bound (rest barycentrics) to the nearest torso triangle; each
+   * frame the torso's displacement from rest at that point is applied with the seam weight. From rest every time.
+   */
+  private buildSeamBindings(): SeamBinding[] {
+    const torso = this.meshes.find((m) => m.mesh.name === this.metadata.construction?.simulationMesh);
+    if (!torso || !torso.indices) return [];
+    this.anchorGroup.updateMatrixWorld(true);
+    const out: SeamBinding[] = [];
+    for (const sleeve of this.meshes.filter((m) => m.role === 'attached')) {
+      const uv = sleeve.mesh.geometry.getAttribute('uv');
+      if (!uv) continue;
+      const toSleeve = new THREE.Matrix4().copy(sleeve.mesh.matrixWorld).invert().multiply(torso.mesh.matrixWorld);
+      const tp = new Float32Array(torso.restPositions.length);
+      const e = toSleeve.elements;
+      for (let i = 0; i < tp.length; i += 3) {
+        const x = torso.restPositions[i], y = torso.restPositions[i + 1], z = torso.restPositions[i + 2];
+        tp[i] = e[0] * x + e[4] * y + e[8] * z + e[12];
+        tp[i + 1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+        tp[i + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+      }
+      const bvh = new TriangleBVH(tp, Uint32Array.from(torso.indices as ArrayLike<number>));
+      // Seam end = the uv row (0 or 1) whose vertices are closest to the torso.
+      const near = { triangle: -1, distSq: 0, point: new THREE.Vector3(), bary: [0, 0, 0] as [number, number, number] };
+      const rp = sleeve.restPositions;
+      const rowDist = (v: number) => {
+        let sum = 0, n = 0;
+        for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getY(i) - v) < 1e-4) {
+          bvh.nearest(new THREE.Vector3(rp[i * 3], rp[i * 3 + 1], rp[i * 3 + 2]), 10, near);
+          sum += Math.sqrt(near.distSq); n++;
+        }
+        return n ? sum / n : Infinity;
+      };
+      const seamAtZero = rowDist(0) <= rowDist(1);
+      const verts: number[] = [], tri: number[] = [], bary: number[] = [], w: number[] = [];
+      for (let i = 0; i < uv.count; i++) {
+        const t = seamAtZero ? uv.getY(i) : 1 - uv.getY(i);
+        const wi = Math.max(0, 1 - t / SEAM_BINDING_FALLOFF);
+        if (wi <= 0) continue;
+        bvh.nearest(new THREE.Vector3(rp[i * 3], rp[i * 3 + 1], rp[i * 3 + 2]), 10, near);
+        if (near.triangle < 0) continue;
+        verts.push(i); tri.push(near.triangle); bary.push(...near.bary); w.push(wi);
+      }
+      out.push({
+        sleeve, torso,
+        verts: Int32Array.from(verts), tri: Int32Array.from(tri), bary: Float32Array.from(bary), w: Float32Array.from(w),
+        torsoToSleeveLin: new THREE.Matrix3().setFromMatrix4(toSleeve),
+        out: new Float32Array(rp.length),
+      });
+      (sleeve.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+      if (!sleeve.deformer) sleeve.deformer = new RestPoseDeformer(sleeve.restPositions, sleeve.indices); // weld ids for normals
+    }
+    return out;
+  }
+
+  private updateSeamBindings(): void {
+    for (const b of this.seamBindings) {
+      const cur = b.torso.mesh.geometry.getAttribute('position').array as Float32Array;
+      const rest = b.torso.restPositions;
+      const idx = b.torso.indices!;
+      const m = b.torsoToSleeveLin.elements;
+      b.out.set(b.sleeve.restPositions);
+      for (let k = 0; k < b.verts.length; k++) {
+        const t = b.tri[k] * 3;
+        let dx = 0, dy = 0, dz = 0;
+        for (let c = 0; c < 3; c++) {
+          const vi = idx[t + c] * 3, bw = b.bary[k * 3 + c];
+          dx += bw * (cur[vi] - rest[vi]); dy += bw * (cur[vi + 1] - rest[vi + 1]); dz += bw * (cur[vi + 2] - rest[vi + 2]);
+        }
+        const s3 = b.verts[k] * 3, wk = b.w[k];
+        b.out[s3] += wk * (m[0] * dx + m[3] * dy + m[6] * dz);
+        b.out[s3 + 1] += wk * (m[1] * dx + m[4] * dy + m[7] * dz);
+        b.out[s3 + 2] += wk * (m[2] * dx + m[5] * dy + m[8] * dz);
+      }
+      this.writeGeometry(b.sleeve, b.out);
+    }
+  }
+
   /** render = deformedRest + Σ w·(particle − skinTarget). */
   private writeSimulated(): void {
     if (!this.sim) return;
@@ -433,6 +527,7 @@ export class GarmentInstance {
     pos.needsUpdate = true;
     this.recomputeNormals(record);
     geom.computeBoundingSphere();
+    this.updateSeamBindings();
   }
 
   update(p: GarmentUpdateParams): void {
@@ -451,22 +546,6 @@ export class GarmentInstance {
     }
     this.wrapper.scale.copy(this.currentScale);
     this.wrapper.updateWorldMatrix(true, true);
-
-    // 2. Sleeves (body-local arm direction → garment-local under S). Short sleeves follow the
-    //    upper arm; rigid long sleeves follow the shoulder→wrist chord when the wrist is tracked.
-    if (this.sleeveRig.sleeves.length) {
-      const long = this.metadata.construction.sleeves === 'long';
-      const l = (long && p.fullArmDirsBody?.left) || p.armDirsBody.left;
-      const r = (long && p.fullArmDirsBody?.right) || p.armDirsBody.right;
-      this.sleeveRig.update(
-        {
-          left: l ? bodyDirToGarment(l, this.currentScale, this._armL) : null,
-          right: r ? bodyDirToGarment(r, this.currentScale, this._armR) : null,
-        },
-        p.dt
-      );
-      this.wrapper.updateWorldMatrix(false, true);
-    }
 
     // 3. Correspondence + deformation only when the configuration changed.
     const s = this.currentScale;

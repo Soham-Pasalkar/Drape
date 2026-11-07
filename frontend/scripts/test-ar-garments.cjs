@@ -11,7 +11,8 @@ const { loadGLB } = require('./lib/glb-node-loader.cjs');
 const { GARMENTS, getGarmentById } = require('../dist_test/garment-registry.js');
 const { GarmentInstance } = require('../dist_test/garment-instance.js');
 const { MHRBodyProxy } = require('../dist_test/mhr-body-proxy.js');
-const { composeGarmentRootMatrix, clampAbduction } = require('../dist_test/garment-rig.js');
+const { composeGarmentRootMatrix } = require('../dist_test/garment-rig.js');
+const { computeSleeveGaps } = require('../dist_test/debug/sleeve-gap.js');
 
 const GDIR = path.join(__dirname, '..', 'public', 'garments');
 
@@ -106,12 +107,13 @@ for (const g of GARMENTS) {
 
   test('mesh roles follow construction metadata', () => {
     const roles = Object.fromEntries(inst.meshes.map((m) => [m.mesh.name, m.role]));
-    if (meta.construction.sleeves === 'none') {
-      assert(!Object.values(roles).includes('articulated'), 'no articulation for sleeveless / bottoms');
+    // 2026-11-07 fix, item 5: no articulation anywhere; sleeves are 'attached' (rigid + seam-bound to the torso).
+    assert(!Object.values(roles).includes('articulated'), `no articulation: ${JSON.stringify(roles)}`);
+    if (meta.construction.sleeves !== 'none') {
+      assert(roles.left_sleeve === 'attached' && roles.right_sleeve === 'attached', JSON.stringify(roles));
     } else {
-      assert(roles.left_sleeve === 'articulated' && roles.right_sleeve === 'articulated', JSON.stringify(roles));
+      assert(!('left_sleeve' in roles) && !('right_sleeve' in roles), `sleeveless garments have no sleeve meshes: ${JSON.stringify(roles)}`);
     }
-    if (meta.id === 'top-sleeveless') assert(roles.left_sleeve === 'rigid', 'cap stubs rigid');
     assert(roles[meta.construction.simulationMesh] === 'simulated', `sim mesh role: ${roles[meta.construction.simulationMesh]} (${inst.simDisabledReason})`);
   });
 
@@ -155,54 +157,54 @@ for (const g of GARMENTS) {
   });
 
   if (meta.construction.sleeves !== 'none') {
-    test('sleeves hang outward at rest (asset orientation)', () => {
-      for (const s of inst.sleeveRig.sleeves) {
-        const sgn = s.side === 'left' ? 1 : -1;
-        assert(s.restAxisParent.x * sgn > 0.3, `${s.side} sleeve axis ${s.restAxisParent.toArray().map((v) => v.toFixed(2))}`);
-        assert(s.restAxisParent.y < 0, 'points down');
-        assert(s.node.position.x * sgn > 0, 'attached on its own side');
+    const sleeves = () => ['left_sleeve', 'right_sleeve'].map((n) => ctx.scene.getObjectByName(n));
+    const torso = () => ctx.scene.getObjectByName(meta.construction.simulationMesh);
+
+    test('sleeves hang outward and down from their seam (asset orientation)', () => {
+      for (const sl of sleeves()) {
+        const sgn = sl.name === 'left_sleeve' ? 1 : -1;
+        const uv = sl.geometry.getAttribute('uv'), pos = sl.geometry.getAttribute('position');
+        const c = (v) => { const p = new THREE.Vector3(); let n = 0; for (let i = 0; i < uv.count; i++) if (Math.abs(uv.getY(i) - v) < 1e-4) { p.add(new THREE.Vector3().fromBufferAttribute(pos, i)); n++; } return p.divideScalar(n); };
+        const seam = c(0), cuff = c(1);
+        assert((cuff.x - seam.x) * sgn > 0.02, `${sl.name} cuff not lateral of the seam`);
+        assert(cuff.y < seam.y, `${sl.name} cuff not below the seam`);
       }
     });
 
-    test('articulation preserves rest position & scale and composes with rest rotation (RC4)', () => {
-      const s = inst.sleeveRig.sleeves.find((x) => x.side === 'left');
-      const arm = new THREE.Vector3(1, -0.2, 0.3).normalize();
-      for (let i = 0; i < 200; i++) update(ctx, { arms: { left: arm, right: null } });
-      near(s.node.position.distanceTo(s.rest.position), 0, 1e-12, 'rest position preserved');
-      near(s.node.scale.distanceTo(s.rest.scale), 0, 1e-12, 'rest scale preserved');
-      // The sleeve axis now points along the (clamped) arm direction.
-      const axisNow = s.axisLocal.clone().applyQuaternion(s.node.quaternion);
-      const expected = clampAbduction(arm.clone(), 'left', s.minAbductionRad);
-      near(axisNow.angleTo(expected), 0, 1e-3, 'axis follows arm');
-      // q = q_swing · q_rest exactly.
-      const swing = new THREE.Quaternion().setFromUnitVectors(s.restAxisParent, inst.sleeveRig.currentAxis('left'));
-      const composed = swing.multiply(s.rest.quaternion);
-      near(Math.abs(composed.dot(s.node.quaternion)), 1, 1e-9, 'composition');
-    });
-
-    test('raising the arm above the shoulder rotates the sleeve upward', () => {
+    test('sleeves are NOT articulated: arm input leaves sleeve transforms and geometry at rest', () => {
+      const before = sleeves().map((sl) => [sl.position.clone(), sl.quaternion.clone()]);
       const up = new THREE.Vector3(0.6, 0.8, 0).normalize();
-      for (let i = 0; i < 200; i++) update(ctx, { arms: { left: up, right: up.clone().setX(-0.6) } });
-      assert(inst.sleeveRig.currentAxis('left').y > 0.5, 'left sleeve up');
-      assert(inst.sleeveRig.currentAxis('right').y > 0.5, 'right sleeve up');
-      assert(inst.sleeveRig.currentAxis('right').x < 0, 'right sleeve stays on its side');
+      for (let i = 0; i < 60; i++) update(ctx, { arms: { left: up, right: up.clone().setX(-0.6) } });
+      sleeves().forEach((sl, k) => {
+        near(sl.position.distanceTo(before[k][0]), 0, 0, 'position');
+        near(Math.abs(sl.quaternion.dot(before[k][1])), 1, 1e-12, 'rotation');
+      });
     });
 
-    test('hanging arm is clamped to the geometric minimum abduction (no torso penetration)', () => {
-      const down = new THREE.Vector3(0, -1, 0);
-      for (let i = 0; i < 300; i++) update(ctx, { arms: { left: down, right: down } });
-      for (const s of inst.sleeveRig.sleeves) {
-        const a = inst.sleeveRig.currentAxis(s.side);
-        const psi = Math.atan2(a.x * (s.side === 'left' ? 1 : -1), -a.y);
-        assert(psi >= s.minAbductionRad - 1e-3, `ψ=${psi.toFixed(3)} < min ${s.minAbductionRad.toFixed(3)}`);
+    test('seam gap at rest: the WHOLE seam ring lies within 0.5 cm of the torso surface', () => {
+      ctx.scene.updateMatrixWorld(true);
+      for (const g of computeSleeveGaps(torso(), sleeves())) {
+        assert(g.ringVertices >= 8, `${g.name} ring vertices ${g.ringVertices}`);
+        assert(g.maxCm < 0.5, `${g.name}: min ${g.minCm.toFixed(2)} / median ${g.medianCm.toFixed(2)} / max ${g.maxCm.toFixed(2)} cm`);
       }
     });
 
-    test('untracked arm eases back to the exact rest transform', () => {
-      for (let i = 0; i < 600; i++) update(ctx, { arms: { left: null, right: null } });
-      for (const s of inst.sleeveRig.sleeves) {
-        near(Math.abs(s.node.quaternion.dot(s.rest.quaternion)), 1, 1e-6, `${s.side} back at rest`);
+    test('seam gap under pose (moving body, larger body → torso push-out, cloth simulation): ring within 0.5 cm', () => {
+      ctx.proxy.setShape({ ...ctx.proxy.getShape(), chest: { a: 0.22, b: 0.15 }, shoulderBreadthM: 0.42 });
+      let worst = 0, worstName = '';
+      for (let f = 0; f < 180; f++) {
+        const t = f / 60;
+        ctx.bodyRoot.position.set(0.2 * Math.sin(t * 2), 0.05 * Math.sin(t * 3), -1.5 + 0.3 * Math.sin(t));
+        ctx.bodyRoot.quaternion.setFromEuler(new THREE.Euler(0, 0.4 * Math.sin(t * 1.5), 0));
+        ctx.bodyRoot.updateMatrixWorld(true);
+        ctx.inst.update({ bodyProxy: ctx.proxy, bodyRoot: ctx.bodyRoot, dt: 1 / 60, nowMs: (ctx.now = (ctx.now ?? 0) + 16.7), armDirsBody: { left: null, right: null }, targetScale: new THREE.Vector3(1, 1, 1), tracking: true, frameAccelWorld: new THREE.Vector3(Math.sin(t * 4), 0, 0) });
+        if (f % 30 === 29) {
+          ctx.scene.updateMatrixWorld(true);
+          for (const g of computeSleeveGaps(torso(), sleeves())) if (g.maxCm > worst) { worst = g.maxCm; worstName = g.name; }
+        }
       }
+      console.log(`      worst seam gap under pose: ${worst.toFixed(3)} cm (${worstName})`);
+      assert(worst < 0.5, `max seam gap ${worst.toFixed(3)} cm (${worstName})`);
     });
   }
 }

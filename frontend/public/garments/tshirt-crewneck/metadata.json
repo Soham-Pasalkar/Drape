@@ -12,9 +12,9 @@
     "shoulderSpanCm": 46
   },
   "modelDimensions": {
-    "width": 0.858,
+    "width": 0.892,
     "height": 0.659,
-    "depth": 0.197
+    "depth": 0.188
   },
   "modelAnchor": {
     "x": 0,
@@ -64,5 +64,5 @@
     "commercialUsePermitted": true,
     "author": "DRAPE 3D Studio"
   },
-  "createdAt": "2026-11-06T16:42:24.370Z"
+  "createdAt": "2026-11-07T06:38:24.243Z"
 }

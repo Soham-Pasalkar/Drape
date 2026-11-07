@@ -84,6 +84,8 @@ export interface SessionFrameDiag {
     meshes: { name: string; role: string; sizeM: Vec3T; centreRelAnchorM: Vec3T; screen: { x: number; y: number; w: number; h: number } }[];
     /** Projected GLB shoulder seam (container px) — item 3 metric. */
     seam?: { widthPx: number; left: { x: number; y: number }; right: { x: number; y: number } } | null;
+    /** Sleeve seam-ring gap to the torso surface, cm — item 5 metric. */
+    sleeveGaps?: { name: string; minCm: number; medianCm: number; maxCm: number }[];
   } | null;
 }
 

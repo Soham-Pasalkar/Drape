@@ -17,7 +17,7 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/tshirt-crewneck/model.glb',
     thumbnailPath: '/garments/tshirt-crewneck/thumbnail.svg',
     dimensions: { chestCm: 98, waistCm: 90, lengthCm: 66, shoulderSpanCm: 46 },
-    modelDimensions: { width: 0.858, height: 0.659, depth: 0.197 },
+    modelDimensions: { width: 0.892, height: 0.659, depth: 0.188 },
     modelAnchor: { x: 0, y: 0.2572, z: 0, type: 'shoulder_center' },
     construction: { sleeves: 'short', simulationMesh: 'torso' },
     fittingProfile: {
@@ -69,7 +69,7 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/tshirt-oversized/model.glb',
     thumbnailPath: '/garments/tshirt-oversized/thumbnail.svg',
     dimensions: { chestCm: 116, waistCm: 110, lengthCm: 74, shoulderSpanCm: 56 },
-    modelDimensions: { width: 1.089, height: 0.737, depth: 0.24 },
+    modelDimensions: { width: 1.127, height: 0.737, depth: 0.234 },
     modelAnchor: { x: 0, y: 0.2908, z: 0, type: 'shoulder_center' },
     construction: { sleeves: 'short', simulationMesh: 'torso' },
     fittingProfile: {
@@ -121,7 +121,7 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/tshirt-fitted/model.glb',
     thumbnailPath: '/garments/tshirt-fitted/thumbnail.svg',
     dimensions: { chestCm: 88, waistCm: 76, lengthCm: 60, shoulderSpanCm: 40 },
-    modelDimensions: { width: 0.725, height: 0.599, depth: 0.173 },
+    modelDimensions: { width: 0.759, height: 0.599, depth: 0.165 },
     modelAnchor: { x: 0, y: 0.232, z: 0, type: 'shoulder_center' },
     construction: { sleeves: 'short', simulationMesh: 'torso' },
     fittingProfile: {
@@ -173,7 +173,7 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/top-longsleeve/model.glb',
     thumbnailPath: '/garments/top-longsleeve/thumbnail.svg',
     dimensions: { chestCm: 94, waistCm: 84, lengthCm: 65, shoulderSpanCm: 44 },
-    modelDimensions: { width: 1.261, height: 0.649, depth: 0.185 },
+    modelDimensions: { width: 1.295, height: 0.649, depth: 0.185 },
     modelAnchor: { x: 0, y: 0.253, z: 0, type: 'shoulder_center' },
     construction: { sleeves: 'long', simulationMesh: 'torso' },
     fittingProfile: {
@@ -225,7 +225,7 @@ export const GARMENTS: GarmentMetadata[] = [
     modelPath: '/garments/top-sleeveless/model.glb',
     thumbnailPath: '/garments/top-sleeveless/thumbnail.svg',
     dimensions: { chestCm: 90, waistCm: 80, lengthCm: 54, shoulderSpanCm: 38 },
-    modelDimensions: { width: 0.515, height: 0.54, depth: 0.165 },
+    modelDimensions: { width: 0.44, height: 0.54, depth: 0.165 },
     modelAnchor: { x: 0, y: 0.2068, z: 0, type: 'shoulder_center' },
     construction: { sleeves: 'none', simulationMesh: 'torso' },
     fittingProfile: {

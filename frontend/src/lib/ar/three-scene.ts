@@ -24,6 +24,7 @@ import { GarmentInstance, GarmentDebugFlags, GarmentDiagnostics, SimulationData 
 import { buildProjectionMatrix, VideoDisplayTransform, ndcToDisplay, Vec2 } from './coordinates';
 import { DetailedFittingResult } from './fitting-engine';
 import { PoseSmoother } from './pipeline/pose-smoother';
+import { computeSleeveGaps, SleeveGap } from './debug/sleeve-gap';
 import {
   DebugMaterialMode,
   OrientationProbe,
@@ -603,6 +604,17 @@ export class ThreeSceneManager {
       seam = { widthPx: Math.hypot(a.x - b.x, a.y - b.y), left: a, right: b };
     }
     return { wrapperScale: t3(inst.wrapper.scale), anchorWorld: t3(anchor), meshes, seam };
+  }
+
+  /** Seam gap per attached sleeve (cm, current deformed geometry) — item 5 metric. */
+  sleeveGaps(): SleeveGap[] {
+    const inst = this.active;
+    if (!inst) return [];
+    const torso = inst.meshes.find((m) => m.mesh.name === inst.metadata.construction.simulationMesh)?.mesh;
+    const sleeves = inst.meshes.filter((m) => m.role === 'attached').map((m) => m.mesh);
+    if (!torso || !sleeves.length) return [];
+    inst.wrapper.updateWorldMatrix(true, true);
+    return computeSleeveGaps(torso, sleeves);
   }
 
   /** Real rendering geometry for session recording (G2 amendment 1). */

@@ -131,31 +131,72 @@ function createTShirtGeometry(options = {}) {
   torsoMesh.name = 'torso';
   groupGeom.add(torsoMesh);
 
-  // Left and right sleeves
-  const shoulderPointX = (torsoWidth * 0.96) / 2;
+  // Set-in sleeves (2026-11-07 fix, item 5). The sleeve's top ring is the ARMHOLE: an ellipse drawn ON the torso's
+  // side surface (x from the torso cross-section at that height/depth), so the seam has no gap. The tube is lofted
+  // from the armhole ring to a cuff ring perpendicular to the sleeve axis. Garments with sleeveLength < 0.05 m
+  // (sleeveless) get no sleeve meshes at all.
   const shoulderPointY = yShoulder - 0.02;
-  const sleeveTopRadius = sleeveRadius * 1.10;
-  const sleeveDeltaY = sleeveTopRadius * Math.sin(sleeveAngle);
-  const sleevePosY = shoulderPointY - sleeveDeltaY;
-
-  const leftSleeveGeom = new THREE.CylinderGeometry(sleeveTopRadius, sleeveRadius, sleeveLength, 16, 6, true);
-  leftSleeveGeom.translate(0, -sleeveLength / 2, 0);
-  const leftSleeveMesh = new THREE.Mesh(leftSleeveGeom);
-  leftSleeveMesh.name = 'left_sleeve';
-  leftSleeveMesh.position.set(shoulderPointX - 0.015, sleevePosY, 0);
-  // Sleeve geometry extends along local -Y. Rz(+a) maps -Y to (+sin a, -cos a, 0):
-  // the left sleeve (on +X, the wearer's left) must hang outward toward +X.
-  leftSleeveMesh.rotation.z = sleeveAngle;
-  groupGeom.add(leftSleeveMesh);
-
-  const rightSleeveGeom = new THREE.CylinderGeometry(sleeveTopRadius, sleeveRadius, sleeveLength, 16, 6, true);
-  rightSleeveGeom.translate(0, -sleeveLength / 2, 0);
-  const rightSleeveMesh = new THREE.Mesh(rightSleeveGeom);
-  rightSleeveMesh.name = 'right_sleeve';
-  rightSleeveMesh.position.set(-(shoulderPointX - 0.015), sleevePosY, 0);
-  // Mirror of the left sleeve: Rz(-a) maps -Y to (-sin a, -cos a, 0), outward toward -X.
-  rightSleeveMesh.rotation.z = -sleeveAngle;
-  groupGeom.add(rightSleeveMesh);
+  const sectionAt = (y) => {
+    const v = (yShoulder - y) / torsoHeight;
+    let width;
+    if (v < 0.2) width = torsoWidth * 0.96 + (torsoWidth - torsoWidth * 0.96) * (v / 0.2);
+    else if (v < 0.6) width = torsoWidth - (torsoWidth - waistWidth) * ((v - 0.2) / 0.4);
+    else width = waistWidth + (torsoWidth * 0.96 - waistWidth) * ((v - 0.6) / 0.4);
+    const depth = torsoDepth * (0.82 + 0.18 * Math.sin(v * Math.PI));
+    return { hw: width / 2, hd: depth / 2 };
+  };
+  const buildSleeve = (side) => {
+    const sgn = side === 'left' ? 1 : -1;
+    const rY = sleeveRadius * 1.1; // armhole vertical half-size (seam drop from the shoulder point)
+    const cy = shoulderPointY - rY;
+    const rZ = Math.min(rY, sectionAt(cy).hd * 0.9);
+    // Torso front carries the bust bump (+0.018·sin(...) in z for z > 0, 0.15 < v < 0.45): undo it before
+    // solving the ellipse so the armhole lies on the actual surface.
+    const bumpAt = (y) => {
+      const v = (yShoulder - y) / torsoHeight;
+      return v > 0.15 && v < 0.45 ? Math.sin(((v - 0.15) / 0.3) * Math.PI) * 0.018 : 0;
+    };
+    const surfX = (y, z) => {
+      const { hw, hd } = sectionAt(y);
+      const zb = z > 0 ? Math.max(0, z - bumpAt(y)) : z;
+      return sgn * hw * Math.sqrt(Math.max(0, 1 - (zb / hd) ** 2));
+    };
+    const armCentre = new THREE.Vector3(surfX(cy, 0), cy, 0);
+    const axis = new THREE.Vector3(sgn * Math.sin(sleeveAngle), -Math.cos(sleeveAngle), 0);
+    const up = new THREE.Vector3(0, 0, 1).cross(axis).multiplyScalar(sgn).normalize(); // cuff "top" direction
+    const zDir = new THREE.Vector3(0, 0, 1);
+    const cuffCentre = armCentre.clone().addScaledVector(axis, sleeveLength);
+    const rows = 6, radial = 16;
+    const pos = [], uv = [], idx = [];
+    for (let r = 0; r <= rows; r++) {
+      const t = r / rows;
+      for (let k = 0; k <= radial; k++) {
+        const th = (k / radial) * Math.PI * 2;
+        const ay = cy + rY * Math.cos(th), az = rZ * Math.sin(th);
+        const A = new THREE.Vector3(surfX(ay, az), ay, az);
+        const C = cuffCentre.clone().addScaledVector(up, sleeveRadius * Math.cos(th)).addScaledVector(zDir, sleeveRadius * Math.sin(th));
+        const P = A.lerp(C, t);
+        pos.push(P.x, P.y, P.z);
+        uv.push(k / radial, t);
+      }
+    }
+    for (let r = 0; r < rows; r++) for (let k = 0; k < radial; k++) {
+      const a = r * (radial + 1) + k, b = a + radial + 1;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g);
+    m.name = side + '_sleeve';
+    return m;
+  };
+  if (sleeveLength >= 0.05) {
+    groupGeom.add(buildSleeve('left'));
+    groupGeom.add(buildSleeve('right'));
+  }
 
   return {
     group: groupGeom,

@@ -36,6 +36,7 @@ export function formatDiagLine(t: number, diag: SessionFrameDiag, reg: Registrat
     `seamW=${diag.garment?.seam ? f(diag.garment.seam.widthPx, 0) : '—'}px`,
     `seam/shoulder=${diag.garment?.seam && extra.shoulderSpanPx && extra.displayScale ? f(diag.garment.seam.widthPx / (extra.shoulderSpanPx * extra.displayScale), 3) : '—'}`,
     sleeves,
+    diag.garment?.sleeveGaps?.length ? `seamGapMax=${diag.garment.sleeveGaps.map((g) => f(g.maxCm, 2)).join('/')}cm` : '',
   ].join(' ');
 }
 

@@ -37,6 +37,11 @@ export function buildFrameDiag(
     snapPending: ts.snapPending,
     lerpA: ts.lerpA,
     bodyRootVisible: ts.bodyRootVisible,
-    garment: display ? scene.garmentGeometry(display) : null,
+    garment: display
+      ? (() => {
+          const g = scene.garmentGeometry(display);
+          return g ? { ...g, sleeveGaps: scene.sleeveGaps().map(({ name, minCm, medianCm, maxCm }) => ({ name, minCm, medianCm, maxCm })) } : null;
+        })()
+      : null,
   };
 }
