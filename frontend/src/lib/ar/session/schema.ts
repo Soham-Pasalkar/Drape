@@ -72,8 +72,17 @@ export interface SessionFrame {
     /** getComputedStyle(mirror wrapper).transform, e.g. "matrix(-1, 0, 0, 1, 0, 0)". */
     wrapperTransform: string;
   };
+  /** 33 raw landmarks, or [] when MediaPipe detected no pose (the smoother is then not called). */
   raw: SessionLandmark[];
   world: SessionLandmark[] | null;
+  /** Garment active for this frame (the user may switch while recording). */
+  garmentId: string;
+  /** Intrinsics used this frame [fx, fy, cx, cy] (card calibration can change them mid-session). */
+  k: [number, number, number, number];
+  /** Pose frames that the smoother consumed BEFORE this one but the render loop skipped (replay fidelity). */
+  smoothedOnly: { t: number; raw: SessionLandmark[]; world: SessionLandmark[] | null }[];
+  /** rAF timestamps of every render from this frame's consumption tick until the next consumed frame. */
+  renderTimes: number[];
   out: SessionFrameOut;
 }
 
@@ -132,9 +141,13 @@ export function validateSession(obj: unknown, max = 25): string[] {
     if (!r || !isSize(r.canvasClient) || !isSize(r.canvasBuffer) || !isSize(r.drawingBuffer) || !isNum(r.rendererPixelRatio) || typeof r.wrapperTransform !== 'string') {
       push(`${at}.render geometry incomplete`);
     }
-    if (!Array.isArray(f.raw) || f.raw.length !== 33 || f.raw.some((l) => !isNum(l.x) || !isNum(l.y) || !isNum(l.z) || !isNum(l.v))) push(`${at}.raw must be 33 finite landmarks`);
+    if (!Array.isArray(f.raw) || (f.raw.length !== 33 && f.raw.length !== 0) || f.raw.some((l) => !isNum(l.x) || !isNum(l.y) || !isNum(l.z) || !isNum(l.v))) push(`${at}.raw must be 33 finite landmarks (or empty = no detection)`);
     if (f.world !== null && (!Array.isArray(f.world) || f.world.length !== 33)) push(`${at}.world must be null or 33 landmarks`);
     if (!f.out || !f.out.smoothedRoot || !f.out.timings) push(`${at}.out incomplete`);
+    if (typeof f.garmentId !== 'string') push(`${at}.garmentId`);
+    if (!Array.isArray(f.k) || f.k.length !== 4 || !f.k.every(isNum)) push(`${at}.k must be [fx, fy, cx, cy]`);
+    if (!Array.isArray(f.smoothedOnly)) push(`${at}.smoothedOnly must be an array`);
+    if (!Array.isArray(f.renderTimes) || f.renderTimes.length === 0 || !f.renderTimes.every(isNum)) push(`${at}.renderTimes must be a non-empty number array`);
   });
   (s.markers ?? []).forEach((m, i) => {
     if (!isNum(m.frameIndex) || !POSITION_KEYS.includes(m.position)) push(`markers[${i}] invalid`);

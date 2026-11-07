@@ -48,7 +48,11 @@ import {
 } from "@/lib/ar/types";
 import { getAllGarments, getGarmentById } from "@/lib/ar/garment-registry";
 import { CameraManager } from "@/lib/ar/camera";
-import { PoseTracker, PoseTrackerCallbacks } from "@/lib/ar/pose-tracker";
+import { PoseTracker, PoseTrackerCallbacks, POSE_MODEL_ID, POSE_OPTIONS } from "@/lib/ar/pose-tracker";
+import { SessionRecorder, toSessionLandmarks } from "@/lib/ar/session/recorder";
+import { composeSnapshot } from "@/lib/ar/session/snapshot";
+import { PositionKey, SessionFile } from "@/lib/ar/session/schema";
+import { imageToDisplay } from "@/lib/ar/coordinates";
 import { ThreeSceneManager } from "@/lib/ar/three-scene";
 import { FittingEngine, DetailedFittingResult } from "@/lib/ar/fitting-engine";
 import { FrameStep } from "@/lib/ar/pipeline/frame-step";
@@ -117,11 +121,24 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const renderRafRef = useRef<number | null>(null);
   const sessionRef = useRef<number>(0); // invalidates async work from a previous session
 
-  const poseFrameRef = useRef<{ keypoints: BodyKeypoints | null; landmarks: LandmarkPoint[]; frameId: number }>({
-    keypoints: null,
-    landmarks: [],
-    frameId: 0,
-  });
+  const poseFrameRef = useRef<{
+    keypoints: BodyKeypoints | null;
+    landmarks: LandmarkPoint[];
+    frameId: number;
+    t: number;
+    mediaTime: number | null;
+    world: LandmarkPoint[] | undefined;
+  }>({ keypoints: null, landmarks: [], frameId: 0, t: 0, mediaTime: null, world: undefined });
+  // Session recording (FR-18): local only, opt-in.
+  const recorderRef = useRef<SessionRecorder>(new SessionRecorder());
+  const [recording, setRecording] = useState(false);
+  const [recordElapsedS, setRecordElapsedS] = useState(0);
+  const [recordFrames, setRecordFrames] = useState(0);
+  const [lastMarker, setLastMarker] = useState<PositionKey | null>(null);
+  const [includeSnapshots, setIncludeSnapshots] = useState(false);
+  const includeSnapshotsRef = useRef(false);
+  const lastRecordUiRef = useRef(0);
+  const [savedSessionName, setSavedSessionName] = useState<string | null>(null);
   const processedFrameIdRef = useRef<number>(0);
   const latestFitRef = useRef<DetailedFittingResult | null>(null);
   const containerSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -194,7 +211,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     threeSceneRef.current = null;
     fittingEngineRef.current = null;
     frameStepRef.current = null;
-    poseFrameRef.current = { keypoints: null, landmarks: [], frameId: 0 };
+    poseFrameRef.current = { keypoints: null, landmarks: [], frameId: 0, t: 0, mediaTime: null, world: undefined };
+    if (recorderRef.current.active) recorderRef.current.stop(); // discard: the session ended without a save
     processedFrameIdRef.current = 0;
     latestFitRef.current = null;
     displayKeyRef.current = "";
@@ -342,14 +360,158 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     };
   };
 
+  /** Builds one session frame from the live objects of THIS tick (called right after render). */
+  const recordConsumedFrame = (
+    pf: typeof poseFrameRef.current,
+    fit: DetailedFittingResult | null,
+    sceneNow: ThreeSceneManager,
+    fitting: FittingEngine,
+    video: HTMLVideoElement,
+    vW: number,
+    vH: number
+  ) => {
+    const dsp = displayRef.current;
+    const K = fitting.calibrationManager.getIntrinsics();
+    const geom = sceneNow.renderGeometry();
+    const wrapper = threeContainerRef.current?.parentElement;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const kp = pf.keypoints;
+    const reg = dsp
+      ? computeRegistration({
+          display: dsp,
+          mirrored: cameraManagerRef.current?.mirror.value === true,
+          raw: pf.landmarks,
+          smoothed: { left_shoulder: kp?.leftShoulder, right_shoulder: kp?.rightShoulder, left_hip: kp?.leftHip, right_hip: kp?.rightHip },
+          projected: sceneNow.registrationPixels(dsp),
+        })
+      : null;
+    recorderRef.current.consume(
+      {
+        t: pf.t,
+        mediaTime: pf.mediaTime,
+        video: { w: vW, h: vH },
+        container: { w: containerSizeRef.current.width, h: containerSizeRef.current.height },
+        dpr,
+        displayMode: "live",
+        presentedMediaTime: null,
+        render: {
+          canvasClient: geom?.canvasClient ?? { w: 0, h: 0 },
+          canvasBuffer: geom?.canvasBuffer ?? { w: 0, h: 0 },
+          drawingBuffer: geom?.drawingBuffer ?? { w: 0, h: 0 },
+          rendererPixelRatio: geom?.rendererPixelRatio ?? 0,
+          dpr,
+          wrapperTransform: wrapper ? getComputedStyle(wrapper).transform : "none",
+        },
+        raw: toSessionLandmarks(pf.landmarks) ?? [],
+        world: toSessionLandmarks(pf.world),
+        garmentId: selectedGarmentRef.current.id,
+        k: [K.fx, K.fy, K.cx, K.cy],
+        out: {
+          pose: fit
+            ? {
+                position: fit.bodyPose.position,
+                quaternion: fit.bodyPose.quaternion,
+                valid: fit.pnpResult.valid,
+                reason: fit.pnpResult.reason ?? null,
+                reprojPx: Number.isFinite(fit.pnpResult.reprojectionError) ? fit.pnpResult.reprojectionError : null,
+                usedPoints: fit.pnpResult.usedPoints,
+              }
+            : null,
+          pnpKeypointsCam: fit ? fit.pnpKeypointsCamera : null,
+          smoothedRoot: {
+            position: [sceneNow.bodyRoot.position.x, sceneNow.bodyRoot.position.y, sceneNow.bodyRoot.position.z],
+            quaternion: [sceneNow.bodyRoot.quaternion.x, sceneNow.bodyRoot.quaternion.y, sceneNow.bodyRoot.quaternion.z, sceneNow.bodyRoot.quaternion.w],
+          },
+          registration: reg,
+          distance: fit ? { z: fit.distance.distanceM, mode: fit.distance.mode } : null,
+          timings: { inferMs: poseTrackerRef.current?.stats.inferenceMs ?? 0, fitMs: fit?.fitDurationMs ?? 0, renderMs: sceneNow.renderDurationMs },
+        },
+      },
+      pf.t
+    );
+  };
+
+  const startRecording = () => {
+    const scene = threeSceneRef.current, fitting = fittingEngineRef.current, cam = cameraManagerRef.current, video = videoRef.current;
+    if (!scene || !fitting || !cam || !video) return;
+    const K = fitting.calibrationManager.getIntrinsics();
+    const vs = getComputedStyle(video);
+    scene.ensureRegistrationProbes();
+    recorderRef.current.start(
+      {
+        schema: "drape-ar-session/1",
+        createdAt: new Date().toISOString(),
+        appCommit: process.env.NEXT_PUBLIC_APP_COMMIT || null,
+        userAgent: navigator.userAgent,
+        modelId: POSE_MODEL_ID,
+        poseOptions: { ...POSE_OPTIONS },
+        trackSettings: cam.trackSettings,
+        mirror: cam.mirror,
+        garmentId: selectedGarmentRef.current.id,
+        calibration: { fx: K.fx, fy: K.fy, cx: K.cx, cy: K.cy, width: K.width, height: K.height, method: K.calibrationMethod },
+        video: { objectFit: vs.objectFit, objectPosition: vs.objectPosition },
+      },
+      performance.now()
+    );
+    setSavedSessionName(null);
+    setLastMarker(null);
+    setRecordElapsedS(0);
+    setRecordFrames(0);
+    setRecording(true);
+  };
+
+  const stopAndSaveRecording = () => {
+    const file: SessionFile | null = recorderRef.current.stop();
+    setRecording(false);
+    if (!file) return;
+    const ua = navigator.userAgent;
+    const browser = /Edg\//.test(ua) ? "edge" : /Chrome\//.test(ua) ? "chrome" : /Safari\//.test(ua) ? "safari" : /Firefox\//.test(ua) ? "firefox" : "browser";
+    const name = `drape-session-${browser}-${file.header.createdAt.replace(/[:.]/g, "-")}.json`;
+    // Local download only (object URL); nothing is sent over the network.
+    const url = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    setSavedSessionName(`${name} (${file.frames.length} frames, ${file.images.length} snapshots)`);
+  };
+
+  // Hotkeys 1–8 label the current position while recording; ignored when typing in a form control.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!recorderRef.current.active || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+      const p = recorderRef.current.markByHotkey(e.key);
+      if (p) setLastMarker(p);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    includeSnapshotsRef.current = includeSnapshots;
+  }, [includeSnapshots]);
+
   const startPoseTracking = async (session: number) => {
     const video = videoRef.current;
     const tracker = poseTrackerRef.current;
     if (!video || !tracker) return;
     const callbacks: PoseTrackerCallbacks = {
-      onKeypoints: (keypoints, landmarks) => {
+      onKeypoints: (keypoints, landmarks, meta) => {
         if (session !== sessionRef.current) return;
-        poseFrameRef.current = { keypoints, landmarks, frameId: poseFrameRef.current.frameId + 1 };
+        poseFrameRef.current = {
+          keypoints,
+          landmarks,
+          frameId: poseFrameRef.current.frameId + 1,
+          t: meta?.timestampMs ?? performance.now(),
+          mediaTime: meta?.mediaTime ?? null,
+          world: meta?.world,
+        };
+        recorderRef.current.notePoseFrame(poseFrameRef.current.t, landmarks, meta?.world);
         if (overlaysVisibleRef.current) setRawLandmarks(landmarks);
         const body: BodyTrackingStatus = keypoints ? "detected" : "lost";
         if (statusRef.current.body !== body) {
@@ -443,8 +605,10 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
 
           // 3. Fitting runs once per NEW pose frame.
           const pf = poseFrameRef.current;
+          let consumed = false;
           if (pf.frameId !== processedFrameIdRef.current) {
             processedFrameIdRef.current = pf.frameId;
+            consumed = true;
             if (pf.keypoints) {
               const fit = frameStepRef.current!.fit(pf.keypoints, selectedGarmentRef.current, vW, vH);
               latestFitRef.current = fit;
@@ -465,6 +629,34 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
           // 4. Render.
           sceneNow.render(now);
 
+          // 4b. Session recording (same tick as the render).
+          const rec = recorderRef.current;
+          if (rec.active) {
+            if (consumed) recordConsumedFrame(pf, latestFitRef.current, sceneNow, fittingEngine, video, vW, vH);
+            rec.noteRender(now);
+            const dsp = displayRef.current;
+            if (includeSnapshotsRef.current && dsp && rec.wantsImage(now) && sceneNow.glCanvas) {
+              const reg = sceneNow.registrationPixels(dsp);
+              const cyan = [11, 12, 23, 24]
+                .map((i) => pf.landmarks[i])
+                .filter((l) => l && (l.visibility ?? 0) >= 0.5)
+                .map((l) => imageToDisplay({ x: l.x * vW, y: l.y * vH }, dsp));
+              const ls = pf.landmarks[11], rs = pf.landmarks[12];
+              const png = composeSnapshot({
+                video,
+                glCanvas: sceneNow.glCanvas,
+                display: dsp,
+                mirrored: cameraManagerRef.current?.mirror.value === true,
+                cyan,
+                magenta: Object.values(reg.keypoints),
+                anchor: reg.garmentAnchor,
+                midShoulder: ls && rs ? imageToDisplay({ x: ((ls.x + rs.x) / 2) * vW, y: ((ls.y + rs.y) / 2) * vH }, dsp) : null,
+              });
+              if (png) rec.addImage(png, now);
+            }
+            if (rec.limitReached(now)) stopAndSaveRecording();
+          }
+
           // 5. Throttled UI.
           const fit = latestFitRef.current;
           if (fit && now - lastUiUpdateRef.current > UI_UPDATE_INTERVAL_MS) {
@@ -479,6 +671,11 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
             setGarmentEase(fit.ease);
             setIsCalibrated(fittingEngine.calibrationManager.getIntrinsics().isCalibrated);
             if (diagnosticsVisibleRef.current) setDiagnosticMetrics(buildDiagnostics(fit, video, fittingEngine, sceneNow));
+          }
+          if (rec.active && now - lastRecordUiRef.current > 250) {
+            lastRecordUiRef.current = now;
+            setRecordElapsedS(rec.elapsedMs(now) / 1000);
+            setRecordFrames(rec.frameCount);
           }
         }
         lastFrameMsRef.current = performance.now() - t0;
@@ -704,6 +901,17 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
               onDiagnosticLayersChange={setDiagnosticLayers}
               materialMode={materialMode}
               onMaterialModeChange={setMaterialMode}
+              session={{
+                recording,
+                elapsedS: recordElapsedS,
+                frames: recordFrames,
+                lastMarker,
+                includeSnapshots,
+                savedName: savedSessionName,
+                onRecord: startRecording,
+                onStopSave: stopAndSaveRecording,
+                onToggleSnapshots: () => setIncludeSnapshots((v) => !v),
+              }}
               displayTransform={displayTransform}
               onSwitchCamera={isCameraActive ? handleSwitchCamera : undefined}
               onOpenCalibration={() => setCalibrationModalOpen(true)}

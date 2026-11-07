@@ -379,6 +379,11 @@ export class ThreeSceneManager {
     this.attachRegistrationCube();
   }
 
+  /** Creates the registration probes (hidden unless enabled) so recordings always have magenta positions. */
+  ensureRegistrationProbes(): void {
+    if (!this.registrationGroup) this.setRegistrationVisible(this.registrationVisible);
+  }
+
   private attachRegistrationCube(): void {
     if (!this.registrationCube) return;
     this.registrationCube.parent?.remove(this.registrationCube);
@@ -530,6 +535,29 @@ export class ThreeSceneManager {
       this.probeRgb = readPixelAtNdc(this.renderer, ndc);
     }
     this.lastRenderMs = performance.now() - t0;
+  }
+
+  /** Real rendering geometry for session recording (G2 amendment 1). */
+  renderGeometry(): { canvasClient: { w: number; h: number }; canvasBuffer: { w: number; h: number }; drawingBuffer: { w: number; h: number }; rendererPixelRatio: number } | null {
+    if (!this.renderer) return null;
+    const el = this.renderer.domElement;
+    const gl = this.renderer.getContext();
+    return {
+      canvasClient: { w: el.clientWidth, h: el.clientHeight },
+      canvasBuffer: { w: el.width, h: el.height },
+      drawingBuffer: { w: gl ? gl.drawingBufferWidth : 0, h: gl ? gl.drawingBufferHeight : 0 },
+      rendererPixelRatio: this.renderer.getPixelRatio(),
+    };
+  }
+
+  /** The WebGL canvas (for same-tick debug snapshots). */
+  get glCanvas(): HTMLCanvasElement | null {
+    return this.renderer?.domElement ?? null;
+  }
+
+  /** Duration of the last render() call (ms). */
+  get renderDurationMs(): number {
+    return this.lastRenderMs;
   }
 
   getDiagnostics(): SceneDiagnostics {

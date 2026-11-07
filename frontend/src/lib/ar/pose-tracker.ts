@@ -14,7 +14,11 @@ import { LandmarkPoint, BodyKeypoints, TrackingStatus } from './types';
 import { LandmarkSmoother } from './landmark-smoother';
 
 export interface PoseTrackerCallbacks {
-  onKeypoints?: (keypoints: BodyKeypoints | null, rawLandmarks: LandmarkPoint[]) => void;
+  /**
+   * Called once per inferred video frame. `meta` carries the raw (unsmoothed) world landmarks, the timestamp the
+   * smoother used and the frame's mediaTime — everything a session recording needs to replay this frame.
+   */
+  onKeypoints?: (keypoints: BodyKeypoints | null, rawLandmarks: LandmarkPoint[], meta?: PoseFrameMeta) => void;
   onStatusChange?: (status: TrackingStatus) => void;
   onError?: (error: Error) => void;
 }
@@ -32,6 +36,24 @@ export interface PoseTrackerStats {
 type VideoWithRVFC = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: (now: number, metadata: { mediaTime: number }) => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
+};
+
+export interface PoseFrameMeta {
+  world: LandmarkPoint[] | undefined;
+  timestampMs: number;
+  mediaTime: number | null;
+}
+
+export const POSE_MODEL_ID = 'pose_landmarker_lite';
+/** Landmarker options (recorded in session headers). */
+export const POSE_OPTIONS = {
+  modelAssetPath: `/models/${POSE_MODEL_ID}.task`,
+  runningMode: 'VIDEO' as const,
+  numPoses: 1,
+  minPoseDetectionConfidence: 0.5,
+  minPosePresenceConfidence: 0.5,
+  minTrackingConfidence: 0.5,
+  outputSegmentationMasks: false,
 };
 
 export class PoseTracker {
@@ -67,15 +89,7 @@ export class PoseTracker {
       // Load wasm binaries from local origin /wasm
       const vision = await FilesetResolver.forVisionTasks('/wasm');
 
-      const modelOptions = {
-        modelAssetPath: '/models/pose_landmarker_lite.task',
-        runningMode: 'VIDEO' as const,
-        numPoses: 1,
-        minPoseDetectionConfidence: 0.5,
-        minPosePresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-        outputSegmentationMasks: false,
-      };
+      const modelOptions = POSE_OPTIONS;
 
       try {
         // Attempt GPU delegate first for optimal real-time performance
@@ -183,17 +197,18 @@ export class PoseTracker {
               }
 
               const smoothed = this.smoother.process(rawLandmarks, now, worldLandmarks);
+              const meta: PoseFrameMeta = { world: worldLandmarks, timestampMs: now, mediaTime: this.lastMediaTime >= 0 ? this.lastMediaTime : null };
 
               if (smoothed) {
                 this.setStatus('body_detected', callbacks.onStatusChange);
-                callbacks.onKeypoints?.(smoothed, rawLandmarks);
+                callbacks.onKeypoints?.(smoothed, rawLandmarks, meta);
               } else {
                 this.setStatus('body_lost', callbacks.onStatusChange);
-                callbacks.onKeypoints?.(null, rawLandmarks);
+                callbacks.onKeypoints?.(null, rawLandmarks, meta);
               }
             } else {
               this.setStatus('body_lost', callbacks.onStatusChange);
-              callbacks.onKeypoints?.(null, []);
+              callbacks.onKeypoints?.(null, [], { world: undefined, timestampMs: now, mediaTime: this.lastMediaTime >= 0 ? this.lastMediaTime : null });
             }
           }
         }

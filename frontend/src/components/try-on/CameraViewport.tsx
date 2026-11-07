@@ -34,6 +34,7 @@ import DeveloperDiagnosticOverlay, {
   DiagnosticCanvasLayer,
   DiagnosticLayers,
   DiagnosticMetrics,
+  SessionControls,
 } from "./DeveloperDiagnosticOverlay";
 
 interface CameraViewportProps {
@@ -51,6 +52,7 @@ interface CameraViewportProps {
   onDiagnosticLayersChange: (layers: DiagnosticLayers) => void;
   materialMode: DebugMaterialMode;
   onMaterialModeChange: (mode: DebugMaterialMode) => void;
+  session: SessionControls;
   /** CSS object-fit transform of the video inside this viewport (null until video metadata). */
   displayTransform?: VideoDisplayTransform | null;
   onSwitchCamera?: () => void;
@@ -76,6 +78,7 @@ export default function CameraViewport({
   onDiagnosticLayersChange,
   materialMode,
   onMaterialModeChange,
+  session,
   displayTransform = null,
   onSwitchCamera,
   onOpenCalibration,
@@ -90,11 +93,9 @@ export default function CameraViewport({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.key === "d" || e.key === "D") && !e.metaKey && !e.ctrlKey) {
-        // Only if not focused on an input element
-        if (
-          document.activeElement?.tagName !== "INPUT" &&
-          document.activeElement?.tagName !== "TEXTAREA"
-        ) {
+        // Ignored while typing in a form control (G2 amendment 4).
+        const el = document.activeElement as HTMLElement | null;
+        if (!(el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable))) {
           onToggleDiagnostics?.();
         }
       }
@@ -194,6 +195,7 @@ export default function CameraViewport({
         onLayersChange={onDiagnosticLayersChange}
         materialMode={materialMode}
         onMaterialModeChange={onMaterialModeChange}
+        session={session}
       />
 
       {/* 4. Real-Time Framing Guidance HUD (When user needs to step back / center) */}

@@ -72,6 +72,19 @@ export interface Stage1Readout {
   materialMode: DebugMaterialMode;
 }
 
+/** Session recording controls (FR-18). */
+export interface SessionControls {
+  recording: boolean;
+  elapsedS: number;
+  frames: number;
+  lastMarker: string | null;
+  includeSnapshots: boolean;
+  savedName: string | null;
+  onRecord: () => void;
+  onStopSave: () => void;
+  onToggleSnapshots: () => void;
+}
+
 export interface DiagnosticMetrics {
   camera: {
     videoWidth: number;
@@ -279,6 +292,7 @@ export default function DeveloperDiagnosticOverlay({
   onLayersChange,
   materialMode,
   onMaterialModeChange,
+  session,
 }: {
   active: boolean;
   metrics: DiagnosticMetrics | null;
@@ -286,6 +300,7 @@ export default function DeveloperDiagnosticOverlay({
   onLayersChange: (layers: DiagnosticLayers) => void;
   materialMode: DebugMaterialMode;
   onMaterialModeChange: (mode: DebugMaterialMode) => void;
+  session: SessionControls;
 }) {
   if (!active) return null;
   const m = metrics;
@@ -325,6 +340,31 @@ export default function DeveloperDiagnosticOverlay({
             {label}
           </button>
         ))}
+      </div>
+
+      <div className="border border-warm-ivory/20 rounded-sm p-1.5 space-y-1" data-testid="session-panel">
+        <div className="flex items-center gap-1.5">
+          {!session.recording ? (
+            <button onClick={session.onRecord} className="px-2 py-0.5 border border-red-400 text-red-300 rounded-sm" data-testid="session-record">
+              ● Record
+            </button>
+          ) : (
+            <button onClick={session.onStopSave} className="px-2 py-0.5 border border-acid-lime text-acid-lime rounded-sm" data-testid="session-stop">
+              ■ Stop &amp; save
+            </button>
+          )}
+          <label className="flex items-center gap-1 text-warm-ivory/70">
+            <input type="checkbox" checked={session.includeSnapshots} onChange={session.onToggleSnapshots} disabled={session.recording} />
+            include snapshots
+          </label>
+        </div>
+        {session.recording && (
+          <div className="text-red-300">
+            REC {session.elapsedS.toFixed(1)} s / 120 s · {session.frames} frames · last key: {session.lastMarker ?? "—"}
+          </div>
+        )}
+        <div className="text-warm-ivory/50">Keys 1–8: centre · far left · far right · high · low · closer · farther · hips out</div>
+        {session.savedName && <div className="text-acid-lime break-all">Saved: {session.savedName}</div>}
       </div>
 
       <div className="flex flex-wrap gap-1">
