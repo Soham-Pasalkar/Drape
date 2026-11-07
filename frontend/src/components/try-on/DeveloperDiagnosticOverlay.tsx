@@ -95,6 +95,7 @@ export interface DiagnosticMetrics {
     offsetX: number;
     offsetY: number;
     mirrored: boolean;
+    mirrorSource: string;
     fx: number;
     fy: number;
     cx: number;
@@ -391,7 +392,7 @@ export default function DeveloperDiagnosticOverlay({
             <Row k="Canvas" v={`${m.camera.canvasWidth}×${m.camera.canvasHeight} px @${f(m.camera.dpr, 2)}x`} />
             <Row k="Fit" v={`${m.camera.fit} s=${f(m.camera.displayScale, 4)}`} />
             <Row k="Offset" v={`${f(m.camera.offsetX, 1)}, ${f(m.camera.offsetY, 1)} css`} />
-            <Row k="Mirrored" v={m.camera.mirrored ? "yes (CSS layer stack)" : "no"} />
+            <Row k="Mirrored" v={`${m.camera.mirrored ? "yes (CSS layer stack)" : "no"} · ${m.camera.mirrorSource}`} warn={m.camera.mirrorSource !== "getSettings"} />
             <Row k="fx, fy" v={`${f(m.camera.fx, 1)}, ${f(m.camera.fy, 1)}`} />
             <Row k="cx, cy" v={`${f(m.camera.cx, 1)}, ${f(m.camera.cy, 1)}`} />
             <Row k="Calibration" v={m.camera.calibrationMethod} warn={!m.camera.isCalibrated} />

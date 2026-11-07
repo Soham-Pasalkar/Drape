@@ -77,7 +77,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const [bodyTrackingStatus, setBodyTrackingStatus] = useState<BodyTrackingStatus>("searching");
   const [garmentFittingStatus, setGarmentFittingStatus] = useState<GarmentFittingStatus>("unloaded");
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>("idle");
-  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const [isMirrored, setIsMirrored] = useState<boolean>(true);
 
   const [rawLandmarks, setRawLandmarks] = useState<LandmarkPoint[]>([]);
   const [showSkeleton, setShowSkeleton] = useState<boolean>(false);
@@ -241,7 +241,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
         displayScale: d?.scaleX ?? NaN,
         offsetX: d?.offsetX ?? NaN,
         offsetY: d?.offsetY ?? NaN,
-        mirrored: cameraManagerRef.current?.facingMode === "user",
+        mirrored: cameraManagerRef.current?.mirror.value === true,
+        mirrorSource: cameraManagerRef.current?.mirror.source ?? "none",
         fx: K.fx,
         fy: K.fy,
         cx: K.cx,
@@ -301,7 +302,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
         const reg = scene.registrationPixels(d);
         const raw = poseFrameRef.current.landmarks;
         const kp = poseFrameRef.current.keypoints;
-        const mirrored = cameraManagerRef.current?.facingMode === "user";
+        const mirrored = cameraManagerRef.current?.mirror.value === true;
         const toScreen = (p: { x: number; y: number }) => ({ x: mirrored ? d.containerWidth - p.x : p.x, y: p.y });
         const lmDisp = (pt: { x: number; y: number }) => toScreen(imageToDisplay({ x: pt.x * d.videoWidth, y: pt.y * d.videoHeight }, d));
         const smoothedOf: Record<string, LandmarkPoint | undefined> = {
@@ -397,7 +398,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       const { width, height, aspect } = await cameraManager.startCamera(videoRef.current, { facingMode: "user" });
       if (session !== sessionRef.current) return;
       setCameraAspect(aspect);
-      setFacingMode(cameraManager.facingMode);
+      setIsMirrored(cameraManager.mirror.value);
       setCameraStatus("active");
 
       threeContainerRef.current.innerHTML = "";
@@ -553,7 +554,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       const res = await cam.switchCamera();
       if (session !== sessionRef.current || !res) return;
       setCameraAspect(res.aspect);
-      setFacingMode(cam.facingMode);
+      setIsMirrored(cam.mirror.value);
       // New sensor: previous reference pose, proportions and temporal priors are invalid.
       fittingEngineRef.current?.resetSubjectState();
       fittingEngineRef.current?.calibrationManager.resetToPopulationPrior(res.width, res.height);
@@ -702,7 +703,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
             <CameraViewport
               videoRef={videoRef}
               threeContainerRef={threeContainerRef}
-              isMirrored={facingMode === "user"}
+              isMirrored={isMirrored}
               trackingStatus={trackingStatus}
               rawLandmarks={rawLandmarks}
               showSkeleton={showSkeleton}

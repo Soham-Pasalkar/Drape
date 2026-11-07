@@ -11,10 +11,35 @@ export interface CameraConfig {
   height?: number;
 }
 
+/** Subset of MediaTrackSettings recorded in sessions (no deviceId / groupId). */
+export interface TrackSettingsSubset {
+  width: number | null;
+  height: number | null;
+  frameRate: number | null;
+  facingMode: string | null;
+}
+
+export interface MirrorDecision {
+  value: boolean;
+  /**
+   * 'getSettings' — the track reported facingMode.
+   * 'requested-assumed' — it did not (common on desktop Safari); the REQUESTED mode is assumed (G1 assumption A6).
+   */
+  source: 'getSettings' | 'requested-assumed';
+}
+
+/** Selfie (user-facing) cameras are mirrored; the reported facingMode wins over the requested one. */
+export function decideMirror(requested: 'user' | 'environment', settings: TrackSettingsSubset | null): MirrorDecision {
+  const reported = settings?.facingMode;
+  if (reported === 'user' || reported === 'environment') return { value: reported === 'user', source: 'getSettings' };
+  return { value: requested === 'user', source: 'requested-assumed' };
+}
+
 export class CameraManager {
   private stream: MediaStream | null = null;
   private videoElement: HTMLVideoElement | null = null;
   private currentFacingMode: 'user' | 'environment' = 'user';
+  private settings: TrackSettingsSubset | null = null;
 
   /**
    * Initializes webcam and binds it to the provided HTML5 video element.
@@ -51,6 +76,14 @@ export class CameraManager {
         };
         video.onerror = (e) => reject(new Error('Video stream playback error: ' + String(e)));
       });
+
+      const s = this.stream.getVideoTracks()[0]?.getSettings?.() ?? {};
+      this.settings = {
+        width: s.width ?? null,
+        height: s.height ?? null,
+        frameRate: s.frameRate ?? null,
+        facingMode: s.facingMode ?? null,
+      };
 
       const width = video.videoWidth || 1280;
       const height = video.videoHeight || 720;
@@ -103,6 +136,14 @@ export class CameraManager {
 
   get isStreaming(): boolean {
     return this.stream !== null && this.stream.active;
+  }
+
+  get trackSettings(): TrackSettingsSubset | null {
+    return this.settings ? { ...this.settings } : null;
+  }
+
+  get mirror(): MirrorDecision {
+    return decideMirror(this.currentFacingMode, this.settings);
   }
 
   get facingMode(): 'user' | 'environment' {

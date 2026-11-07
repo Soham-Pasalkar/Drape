@@ -210,4 +210,19 @@ test('known reference distance switches to metric mode', () => {
   near(r.distanceM, 1.0, 0.01);
 });
 
+suite('Mirror decision (FR-02, assumption A6)');
+const { decideMirror } = require('../dist_test/camera.js');
+test('reported facingMode wins and is labelled getSettings', () => {
+  const a = decideMirror('user', { width: 1280, height: 720, frameRate: 30, facingMode: 'environment' });
+  assert(a.value === false && a.source === 'getSettings');
+  const b = decideMirror('environment', { width: 1280, height: 720, frameRate: 30, facingMode: 'user' });
+  assert(b.value === true && b.source === 'getSettings');
+});
+test('missing facingMode (desktop Safari) falls back to the requested mode, labelled requested-assumed', () => {
+  const a = decideMirror('user', { width: 1280, height: 720, frameRate: 30, facingMode: null });
+  assert(a.value === true && a.source === 'requested-assumed');
+  const b = decideMirror('environment', null);
+  assert(b.value === false && b.source === 'requested-assumed');
+});
+
 finish('test-ar-calibration');
