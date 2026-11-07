@@ -57,6 +57,19 @@ export const PROPORTION_CONFIG = {
   TORSO_RATIO_RANGE: [1.0, 1.8] as [number, number],
 };
 
+/**
+ * Hip gating (2026-11-07 fix, item 4): a hip is usable only if visible AND inside the frame with this margin.
+ * MediaPipe reports hips of a waist-cropped person as visible while they lie outside the image (observed on the
+ * M1 rig), which pulled the root pose down/sideways.
+ */
+export const HIP_GATE = { MIN_VISIBILITY: 0.5, FRAME_MARGIN: 0.02 };
+
+export function landmarkUsable(p: { x: number; y: number; visibility?: number } | undefined): boolean {
+  if (!p || (p.visibility ?? 0) < HIP_GATE.MIN_VISIBILITY) return false;
+  const m = HIP_GATE.FRAME_MARGIN;
+  return p.x >= m && p.x <= 1 - m && p.y >= m && p.y <= 1 - m;
+}
+
 /** Joint visibility needed before a limb direction is trusted. */
 export const LIMB_MIN_VISIBILITY = 0.5;
 
@@ -106,6 +119,9 @@ export interface TrackingDiagnostics {
   /** EMA of the frame-to-frame shoulder-centre motion in pixels (jitter + real motion). */
   landmarkJitterPx: number;
   proportionSource: 'population_prior' | 'observed';
+  /** Hips unusable (not visible or out of frame): root pose from shoulders + torso-length prior. */
+  bustMode: boolean;
+  hipsUsable: { left: boolean; right: boolean };
   /** Wall time of the LM root solve this frame (ms). */
   pnpSolveMs: number;
 }
@@ -205,6 +221,8 @@ export class FittingEngine {
     const lh = keypoints.leftHip, rh = keypoints.rightHip;
     const shoulderVis = Math.min(ls.visibility ?? 1, rs.visibility ?? 1);
     const hipVis = Math.min(lh.visibility ?? 0, rh.visibility ?? 0);
+    const lhUsable = landmarkUsable(lh), rhUsable = landmarkUsable(rh);
+    const bustMode = !(lhUsable && rhUsable);
     const world = keypoints.worldLandmarks;
 
     // 2. Shoulder span in true pixels and subject yaw.
@@ -240,7 +258,8 @@ export class FittingEngine {
     const torsoPx = Math.hypot(shoulderCenterPx.x - hipCenterPx.x, shoulderCenterPx.y - hipCenterPx.y);
     const correctedShoulder = shoulderSpanPx / cosYaw;
     if (correctedShoulder > 1) {
-      this.proportionEstimator.observe(hipSpanPx / cosYaw / correctedShoulder, torsoPx / correctedShoulder, yaw, hipVis);
+      // Proportions need both hips usable (in frame); otherwise the torso-length prior / last observation stands.
+      if (!bustMode) this.proportionEstimator.observe(hipSpanPx / cosYaw / correctedShoulder, torsoPx / correctedShoulder, yaw, hipVis);
     }
     const B = distance.shoulderBreadthM;
     const scaleSource = distance.mode === 'metric' ? 'known_distance' : 'anthropometric_prior';
@@ -283,8 +302,8 @@ export class FittingEngine {
     const correspondences: PnPCorrespondence[] = [
       { name: 'left_shoulder', model: model('left_shoulder'), image: px(ls), weight: ls.visibility ?? 1 },
       { name: 'right_shoulder', model: model('right_shoulder'), image: px(rs), weight: rs.visibility ?? 1 },
-      { name: 'left_hip', model: model('left_hip'), image: px(lh), weight: lh.visibility ?? 0 },
-      { name: 'right_hip', model: model('right_hip'), image: px(rh), weight: rh.visibility ?? 0 },
+      { name: 'left_hip', model: model('left_hip'), image: px(lh), weight: lhUsable ? lh.visibility ?? 0 : 0 },
+      { name: 'right_hip', model: model('right_hip'), image: px(rh), weight: rhUsable ? rh.visibility ?? 0 : 0 },
     ];
     const worldRot = world ? torsoRotationFromWorld(world) : null;
     const tPnp = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -418,6 +437,8 @@ export class FittingEngine {
         yawSource,
         landmarkJitterPx: this.jitterEma,
         proportionSource: this.proportionEstimator.source,
+        bustMode,
+        hipsUsable: { left: lhUsable, right: rhUsable },
         pnpSolveMs,
       },
       fitDurationMs,

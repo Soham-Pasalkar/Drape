@@ -688,7 +688,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
                 })
               : null;
             const line = formatDiagLine(pf.t, buildFrameDiag(fitNow, sceneNow, dsp, now), reg, {
-              bustMode: (fitNow?.tracking as { bustMode?: boolean } | undefined)?.bustMode,
+              bustMode: fitNow?.tracking.bustMode,
               shoulderSpanPx: fitNow?.tracking.shoulderSpanPx,
               displayScale: dsp?.scaleX,
             });
