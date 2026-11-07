@@ -59,6 +59,7 @@ import { FrameStep } from "@/lib/ar/pipeline/frame-step";
 import { computeVideoDisplayTransform, VideoDisplayTransform, imageToNDC } from "@/lib/ar/coordinates";
 import { computeRegistration } from "@/lib/ar/debug/registration";
 import { buildFrameDiag } from "@/lib/ar/debug/frame-diag";
+import { formatDiagLine, buildDebugReport, copyText } from "@/lib/ar/debug/debug-report";
 import type { DebugMaterialMode } from "@/lib/ar/debug/stage1-probe";
 import * as THREE from "three";
 import TrackingStatusBanner from "./TrackingStatusBanner";
@@ -139,6 +140,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const [includeSnapshots, setIncludeSnapshots] = useState(false);
   const includeSnapshotsRef = useRef(false);
   const lastRecordUiRef = useRef(0);
+  const debugLinesRef = useRef<string[]>([]);
+  const [debugCopyStatus, setDebugCopyStatus] = useState<string | null>(null);
   const pendingRecordHeaderRef = useRef<SessionFile["header"] | null>(null);
   const [savedSessionName, setSavedSessionName] = useState<string | null>(null);
   const processedFrameIdRef = useRef<number>(0);
@@ -436,6 +439,29 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     );
   };
 
+  const copyDebugReport = async () => {
+    const cam = cameraManagerRef.current, fitting = fittingEngineRef.current, video = videoRef.current, scene = threeSceneRef.current;
+    const K = fitting?.calibrationManager.getIntrinsics();
+    const d = displayRef.current;
+    const header: Record<string, unknown> = {
+      appCommit: process.env.NEXT_PUBLIC_APP_COMMIT || "unknown",
+      userAgent: navigator.userAgent,
+      mirror: cam?.mirror ?? null,
+      trackSettings: cam?.trackSettings ?? null,
+      video: video ? { w: video.videoWidth, h: video.videoHeight, objectFit: getComputedStyle(video).objectFit, objectPosition: getComputedStyle(video).objectPosition } : null,
+      container: containerSizeRef.current,
+      display: d ? { scale: +d.scaleX.toFixed(4), offsetX: +d.offsetX.toFixed(1), offsetY: +d.offsetY.toFixed(1) } : null,
+      dpr: window.devicePixelRatio,
+      render: scene?.renderGeometry() ?? null,
+      K: K ? { fx: +K.fx.toFixed(1), fy: +K.fy.toFixed(1), cx: K.cx, cy: K.cy, method: K.calibrationMethod } : null,
+      garment: selectedGarmentRef.current.id,
+      poseModel: POSE_MODEL_ID,
+    };
+    const lines = debugLinesRef.current.slice();
+    const ok = await copyText(buildDebugReport(header, lines));
+    setDebugCopyStatus(ok ? `copied ${lines.length} frames` : "copy failed — clipboard unavailable");
+  };
+
   const startRecording = () => {
     const scene = threeSceneRef.current, fitting = fittingEngineRef.current, cam = cameraManagerRef.current, video = videoRef.current;
     if (!scene || !fitting || !cam || !video) return;
@@ -644,6 +670,29 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
 
           // 4. Render.
           sceneNow.render(now);
+
+          // 4a. Rolling debug lines for "Copy debug report" (only while the HUD is open).
+          if (consumed && diagnosticsVisibleRef.current) {
+            const dsp = displayRef.current;
+            const kp = pf.keypoints;
+            const fitNow = latestFitRef.current;
+            const reg = dsp
+              ? computeRegistration({
+                  display: dsp,
+                  mirrored: cameraManagerRef.current?.mirror.value === true,
+                  raw: pf.landmarks,
+                  smoothed: { left_shoulder: kp?.leftShoulder, right_shoulder: kp?.rightShoulder, left_hip: kp?.leftHip, right_hip: kp?.rightHip },
+                  projected: sceneNow.registrationPixels(dsp),
+                })
+              : null;
+            const line = formatDiagLine(pf.t, buildFrameDiag(fitNow, sceneNow, dsp, now), reg, {
+              bustMode: (fitNow?.tracking as { bustMode?: boolean } | undefined)?.bustMode,
+              shoulderSpanPx: fitNow?.tracking.shoulderSpanPx,
+            });
+            const buf = debugLinesRef.current;
+            buf.push(line);
+            if (buf.length > 60) buf.splice(0, buf.length - 60);
+          }
 
           // 4b. Session recording (same tick as the render).
           const rec = recorderRef.current;
@@ -927,6 +976,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
                 onRecord: startRecording,
                 onStopSave: stopAndSaveRecording,
                 onToggleSnapshots: () => setIncludeSnapshots((v) => !v),
+                onCopyDebugReport: copyDebugReport,
+                debugCopyStatus,
               }}
               displayTransform={displayTransform}
               onSwitchCamera={isCameraActive ? handleSwitchCamera : undefined}

@@ -84,6 +84,8 @@ export interface SessionControls {
   onRecord: () => void;
   onStopSave: () => void;
   onToggleSnapshots: () => void;
+  onCopyDebugReport: () => void;
+  debugCopyStatus: string | null;
 }
 
 export interface DiagnosticMetrics {
@@ -342,6 +344,13 @@ export default function DeveloperDiagnosticOverlay({
             {label}
           </button>
         ))}
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <button onClick={session.onCopyDebugReport} className="px-2 py-0.5 border border-electric-blue text-electric-blue rounded-sm" data-testid="copy-debug-report">
+          Copy debug report
+        </button>
+        {session.debugCopyStatus && <span className="text-acid-lime">{session.debugCopyStatus}</span>}
       </div>
 
       <div className="border border-warm-ivory/20 rounded-sm p-1.5 space-y-1" data-testid="session-panel">
