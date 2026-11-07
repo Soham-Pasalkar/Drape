@@ -6,7 +6,7 @@
 | Branch / commit | `ar-cleanup` (recording build tag `ar-m1-rec`) |
 | Rollback tags | `pre-cleanup-head` (736b542), `pre-cleanup-wt` (e2ffa3e) |
 | Current phase | Phase 2 — Construction, M1 (session recording + replay) |
-| Status | M1 T1–T8 implemented; acceptance (a)–(d) evidenced on rig; **waiting for user's Safari + Chrome baseline sessions** to close M1 |
+| Status | Waiver in force: implementing the user's depth/garment-follow fix list (no baseline, no gate) |
 | Gates | G1 approved · G2 approved · G3 approved |
 | Milestone in progress | M1 |
 
@@ -46,6 +46,13 @@
   (Z ×1.99, width ×0.46, anchor −299.8 px vs subject −299.7 px) ⇒ symptoms NOT reproduced on synthetic input.
 - Observed: a next-server from this working tree (started 11:34, Safari connected) was running; the user's live
   sessions therefore likely ran ar-cleanup code. Dev-mode `appCommit` is read at server start (stale after HMR).
+
+## Waivers
+- 2026-11-07 — kind=waiver. User: "user waives baseline session recordings and gate ceremony for this fix; risk: no
+  baseline to compare against." Scope: the depth/garment-follow fix (items 1–7 of the user's 2026-11-07 fix list).
+  Consequences accepted: M1 closes without baseline sessions; M2-style fixes proceed without a gate; acceptance is an
+  ADVERSARIAL synthetic test + the user's live check (Copy debug report). Intended behaviour changes re-baseline the
+  golden/refactor test and limit committed-session replay to sessions recorded with the same pipeline version.
 
 ## Notes (out of scope for the current phase)
 - ADR-004 (pose in a Web Worker) diverges from the code; deferred to after M3 (decision 4) — needs an ADR amendment at G2.
