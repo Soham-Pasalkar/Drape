@@ -43,10 +43,10 @@ export default function Header() {
                 <span className="absolute bottom-0 left-0 w-0 h-[1px] bg-electric-blue group-hover:w-full transition-all duration-300" />
               </Link>
               <Link
-                href="/#stylist"
+                href="/wardrobe/studio"
                 className="hover:text-electric-blue transition-colors duration-200 relative group py-2"
               >
-                AI Stylist
+                DRAPE Studio
                 <span className="absolute bottom-0 left-0 w-0 h-[1px] bg-electric-blue group-hover:w-full transition-all duration-300" />
               </Link>
             </nav>
@@ -165,11 +165,11 @@ export default function Header() {
               The Wardrobe
             </Link>
             <Link
-              href="/#stylist"
+              href="/wardrobe/studio"
               onClick={() => setMobileMenuOpen(false)}
               className="block py-2 text-ink-black hover:text-electric-blue border-b border-ink-black/5"
             >
-              AI Stylist
+              DRAPE Studio
             </Link>
             <Link
               href={accountHref}

@@ -7,11 +7,12 @@ Defines:
 3. OutfitItem: Ordered association entity linking outfits to wardrobe items.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 import uuid
 
 from sqlalchemy import (
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -293,6 +294,16 @@ class StylistPreferences(Base):
         default="all-season",
         nullable=True,
     )
+    rotation_strategy: Mapped[str] = mapped_column(
+        String(32),
+        default="balanced",
+        nullable=False,
+    )  # balanced | avoid_recent | max_variety
+    inferred_favorites: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )  # e.g. {"preferred_palettes": [...], "top_combinations": [...]}
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -352,5 +363,182 @@ class OutfitFeedback(Base):
 
     user: Mapped["User"] = relationship("User", backref="outfit_feedback")
     outfit: Mapped[Optional["Outfit"]] = relationship("Outfit")
+
+
+class WearLog(Base):
+    """
+    Historical log of an outfit or garment combination worn on a specific date.
+    Tracks wear frequency, rotation health, and repeat prevention.
+    """
+
+    __tablename__ = "wear_logs"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    wear_date: Mapped[date] = mapped_column(
+        Date,
+        index=True,
+        nullable=False,
+    )
+    outfit_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("outfits.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    occasion: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", backref="wear_logs")
+    outfit: Mapped[Optional["Outfit"]] = relationship("Outfit")
+    items: Mapped[List["WearLogItem"]] = relationship(
+        "WearLogItem",
+        back_populates="wear_log",
+        cascade="all, delete-orphan",
+        order_by="WearLogItem.display_order",
+    )
+
+
+class WearLogItem(Base):
+    """
+    Immutable snapshot of an individual garment worn as part of a WearLog.
+    Preserves garment appearance and metadata even if the original item is removed.
+    """
+
+    __tablename__ = "wear_log_items"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    wear_log_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("wear_logs.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    wardrobe_item_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("wardrobe_items.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    product_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("products.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    garment_name_snapshot: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    category_snapshot: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    color_snapshot: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    image_url_snapshot: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
+    wear_log: Mapped["WearLog"] = relationship("WearLog", back_populates="items")
+    wardrobe_item: Mapped[Optional["WardrobeItem"]] = relationship("WardrobeItem")
+
+
+class OutfitPlan(Base):
+    """
+    Scheduled outfit planned for a specific upcoming calendar date and occasion.
+    Can be marked as worn to convert into a permanent WearLog.
+    """
+
+    __tablename__ = "outfit_plans"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    plan_date: Mapped[date] = mapped_column(
+        Date,
+        index=True,
+        nullable=False,
+    )
+    outfit_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("outfits.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    occasion: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="planned",
+        index=True,
+        nullable=False,
+    )  # "planned" | "worn" | "cancelled"
+    items: Mapped[List[dict]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )  # list of { wardrobe_item_id, name, category, color, image_url }
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship("User", backref="outfit_plans")
+    outfit: Mapped[Optional["Outfit"]] = relationship("Outfit")
+
 
 

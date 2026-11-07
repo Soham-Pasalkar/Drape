@@ -1460,6 +1460,8 @@ export interface StylistPreferences {
   favorite_colors: string[];
   excluded_colors: string[];
   preferred_season?: string | null;
+  rotation_strategy?: string;
+  inferred_favorites?: Record<string, any>;
   created_at?: string;
   updated_at?: string;
 }
@@ -1476,13 +1478,15 @@ export interface OutfitRecommendation {
   season: string;
   score: number;
   score_breakdown: {
-    category_compatibility: number;
-    color_harmony: number;
-    occasion_suitability: number;
-    preference_match: number;
-    novelty: number;
+    category_compatibility?: number;
+    color_harmony?: number;
+    occasion_suitability?: number;
+    preference_match?: number;
+    rotation_health?: number;
+    novelty?: number;
   };
   stylist_notes: string;
+  reasons?: string[];
   items: OutfitRecommendationItem[];
   is_saved: boolean;
   recommendation_hash: string;
@@ -1526,6 +1530,151 @@ export interface CompleteLookResponse {
   owned_categories: string[];
   total_owned: number;
   suggestions: ComplementaryProduct[];
+}
+
+// ==============================================================================
+// DRAPE STUDIO: WEAR LOGS, ROTATION, PLANNER, PROFILE SCHEMAS
+// ==============================================================================
+
+export interface WearLogItem {
+  id: string;
+  wear_log_id: string;
+  wardrobe_item_id?: string | null;
+  product_id?: string | null;
+  garment_name_snapshot: string;
+  category_snapshot: string;
+  color_snapshot: string;
+  image_url_snapshot?: string | null;
+  display_order: number;
+}
+
+export interface WearLog {
+  id: string;
+  user_id: string;
+  wear_date: string;
+  outfit_id?: string | null;
+  occasion?: string | null;
+  notes?: string | null;
+  created_at: string;
+  items: WearLogItem[];
+}
+
+export interface WearLogListResponse {
+  wear_logs: WearLog[];
+  total: number;
+}
+
+export interface WearLogCreatePayload {
+  wear_date?: string | null;
+  outfit_id?: string | null;
+  occasion?: string | null;
+  notes?: string | null;
+  wardrobe_item_ids?: string[] | null;
+  items?: Array<{
+    wardrobe_item_id?: string | null;
+    product_id?: string | null;
+    garment_name: string;
+    category: string;
+    color: string;
+    image_url?: string | null;
+    display_order?: number;
+  }> | null;
+}
+
+export interface GarmentRotationItem {
+  wardrobe_item_id: string;
+  name: string;
+  category: string;
+  color: string;
+  image_url?: string | null;
+  total_wears: number;
+  last_worn_date?: string | null;
+  wears_last_7_days: number;
+  wears_last_30_days: number;
+  rotation_status: "frequent" | "balanced" | "underutilized" | "unworn";
+}
+
+export interface WardrobeRotationResponse {
+  total_logged_wears: number;
+  rotation_strategy: string;
+  most_worn: GarmentRotationItem[];
+  least_worn: GarmentRotationItem[];
+  all_garments: GarmentRotationItem[];
+  recent_activity: WearLog[];
+}
+
+export interface OutfitPlanItem {
+  wardrobe_item_id?: string | null;
+  product_id?: string | null;
+  name: string;
+  category: string;
+  color: string;
+  image_url?: string | null;
+}
+
+export interface OutfitPlan {
+  id: string;
+  user_id: string;
+  plan_date: string;
+  outfit_id?: string | null;
+  occasion?: string | null;
+  notes?: string | null;
+  status: "planned" | "worn" | "cancelled";
+  items: OutfitPlanItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OutfitPlanListResponse {
+  plans: OutfitPlan[];
+  total: number;
+}
+
+export interface OutfitPlanCreatePayload {
+  plan_date: string;
+  outfit_id?: string | null;
+  occasion?: string | null;
+  notes?: string | null;
+  wardrobe_item_ids?: string[] | null;
+  items?: OutfitPlanItem[] | null;
+}
+
+export interface OutfitPlanUpdatePayload {
+  plan_date?: string;
+  occasion?: string | null;
+  notes?: string | null;
+  status?: string;
+  items?: OutfitPlanItem[];
+}
+
+export interface StyleProfileInsight {
+  title: string;
+  description: string;
+  category: "palette" | "silhouette" | "rotation" | "lifestyle";
+}
+
+export interface StyleProfileResponse {
+  style_direction: string;
+  rotation_strategy: string;
+  favorite_occasions: string[];
+  favorite_colors: string[];
+  color_distribution: Record<string, number>;
+  category_distribution: Record<string, number>;
+  total_wears: number;
+  total_saved_outfits: number;
+  total_wardrobe_items: number;
+  insights: StyleProfileInsight[];
+}
+
+export interface DailyStylistResponse {
+  greeting: string;
+  date_display: string;
+  occasion_context: string;
+  weather_summary: string;
+  todays_pick?: OutfitRecommendation | null;
+  alternative_picks: OutfitRecommendation[];
+  recent_wear_alert?: string | null;
+  stylist_tip: string;
 }
 
 /**
@@ -1645,4 +1794,255 @@ export async function getCompleteLookRecommendations(
   });
   return await handleResponse<CompleteLookResponse>(response);
 }
+
+// ==============================================================================
+// DRAPE STUDIO API CLIENT METHODS
+// ==============================================================================
+
+/**
+ * Get daily personalized stylist greeting, context, and recommendation.
+ */
+export async function getDailyStylist(
+  accessToken?: string | null
+): Promise<DailyStylistResponse> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/stylist/daily`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<DailyStylistResponse>(response);
+}
+
+/**
+ * Record a worn outfit or garment combination on a specific date.
+ */
+export async function createWearLog(
+  payload: WearLogCreatePayload,
+  accessToken?: string | null
+): Promise<WearLog> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/wear-logs`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse<WearLog>(response);
+}
+
+/**
+ * Query wear logs with optional day range or start/end bounds.
+ */
+export async function getWearLogs(
+  params?: { days?: number; start_date?: string; end_date?: string; limit?: number; offset?: number },
+  accessToken?: string | null
+): Promise<WearLogListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.days) searchParams.set("days", params.days.toString());
+  if (params?.start_date) searchParams.set("start_date", params.start_date);
+  if (params?.end_date) searchParams.set("end_date", params.end_date);
+  if (params?.limit) searchParams.set("limit", params.limit.toString());
+  if (params?.offset) searchParams.set("offset", params.offset.toString());
+  const queryString = searchParams.toString();
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/wardrobe/wear-logs${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      headers,
+      credentials: "include",
+    }
+  );
+  return await handleResponse<WearLogListResponse>(response);
+}
+
+/**
+ * Get individual wear log by UUID.
+ */
+export async function getWearLog(
+  wearLogId: string,
+  accessToken?: string | null
+): Promise<WearLog> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/wear-logs/${wearLogId}`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<WearLog>(response);
+}
+
+/**
+ * Delete a wear log by UUID.
+ */
+export async function deleteWearLog(
+  wearLogId: string,
+  accessToken?: string | null
+): Promise<{ status: string; message: string }> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/wear-logs/${wearLogId}`, {
+    method: "DELETE",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<{ status: string; message: string }>(response);
+}
+
+/**
+ * Get wardrobe rotation analytics and garment usage health.
+ */
+export async function getWardrobeRotation(
+  accessToken?: string | null
+): Promise<WardrobeRotationResponse> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/rotation`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<WardrobeRotationResponse>(response);
+}
+
+/**
+ * List scheduled outfit plans.
+ */
+export async function getOutfitPlans(
+  params?: { start_date?: string; end_date?: string; status?: string },
+  accessToken?: string | null
+): Promise<OutfitPlanListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.start_date) searchParams.set("start_date", params.start_date);
+  if (params?.end_date) searchParams.set("end_date", params.end_date);
+  if (params?.status) searchParams.set("status", params.status);
+  const queryString = searchParams.toString();
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/wardrobe/planner${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      headers,
+      credentials: "include",
+    }
+  );
+  return await handleResponse<OutfitPlanListResponse>(response);
+}
+
+/**
+ * Create a new scheduled outfit plan.
+ */
+export async function createOutfitPlan(
+  payload: OutfitPlanCreatePayload,
+  accessToken?: string | null
+): Promise<OutfitPlan> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/planner`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse<OutfitPlan>(response);
+}
+
+/**
+ * Update an existing outfit plan.
+ */
+export async function updateOutfitPlan(
+  planId: string,
+  payload: OutfitPlanUpdatePayload,
+  accessToken?: string | null
+): Promise<OutfitPlan> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/planner/${planId}`, {
+    method: "PATCH",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse<OutfitPlan>(response);
+}
+
+/**
+ * Delete a planned outfit.
+ */
+export async function deleteOutfitPlan(
+  planId: string,
+  accessToken?: string | null
+): Promise<{ status: string; message: string }> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/planner/${planId}`, {
+    method: "DELETE",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<{ status: string; message: string }>(response);
+}
+
+/**
+ * Convert a planned outfit into a permanent historical WearLog.
+ */
+export async function markPlanWorn(
+  planId: string,
+  accessToken?: string | null
+): Promise<WearLog> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/planner/${planId}/mark-worn`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<WearLog>(response);
+}
+
+/**
+ * Get personal style profile and behavioral insights.
+ */
+export async function getStyleProfile(
+  accessToken?: string | null
+): Promise<StyleProfileResponse> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/wardrobe/style-profile`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  return await handleResponse<StyleProfileResponse>(response);
+}
+
 

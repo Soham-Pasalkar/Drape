@@ -10,6 +10,7 @@ Handles:
 Conforms to ADR-001, ADR-002, and RFC 9457 error contracts.
 """
 
+from datetime import date, datetime, timedelta
 import hashlib
 import json
 import logging
@@ -24,6 +25,8 @@ from app.api.deps import get_current_user, get_db
 from app.api.v1.schemas.wardrobe import (
     CompleteLookResponse,
     ComplementaryProductResponse,
+    DailyStylistResponse,
+    GarmentRotationItem,
     ImportPurchasesResponse,
     OutfitCreate,
     OutfitFeedbackRequest,
@@ -31,18 +34,30 @@ from app.api.v1.schemas.wardrobe import (
     OutfitItemAddRequest,
     OutfitItemsReorderRequest,
     OutfitListResponse,
+    OutfitPlanCreate,
+    OutfitPlanListResponse,
+    OutfitPlanResponse,
+    OutfitPlanUpdate,
     OutfitRecommendationItem,
     OutfitRecommendationListResponse,
     OutfitRecommendationResponse,
     OutfitResponse,
     OutfitUpdate,
+    StyleProfileInsight,
+    StyleProfileResponse,
     StylistPreferencesResponse,
     StylistPreferencesSchema,
     WardrobeItemCreate,
     WardrobeItemListResponse,
     WardrobeItemResponse,
     WardrobeItemUpdate,
+    WardrobeRotationResponse,
     WardrobeStatsResponse,
+    WearLogCreate,
+    WearLogCreateItem,
+    WearLogItemSchema,
+    WearLogListResponse,
+    WearLogResponse,
 )
 from app.domain.models.catalog import Product, ProductImage
 from app.domain.models.identity import User
@@ -51,8 +66,11 @@ from app.domain.models.wardrobe import (
     Outfit,
     OutfitFeedback,
     OutfitItem,
+    OutfitPlan,
     StylistPreferences,
     WardrobeItem,
+    WearLog,
+    WearLogItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -818,6 +836,8 @@ async def get_stylist_preferences(
             favorite_colors=["black", "white", "navy", "beige"],
             excluded_colors=[],
             preferred_season="all-season",
+            rotation_strategy="balanced",
+            inferred_favorites={},
         )
         db.add(pref)
         await db.commit()
@@ -851,6 +871,8 @@ async def update_stylist_preferences(
             favorite_colors=payload.favorite_colors,
             excluded_colors=payload.excluded_colors,
             preferred_season=payload.preferred_season,
+            rotation_strategy=payload.rotation_strategy,
+            inferred_favorites=payload.inferred_favorites or {},
         )
         db.add(pref)
     else:
@@ -859,6 +881,9 @@ async def update_stylist_preferences(
         pref.favorite_colors = payload.favorite_colors
         pref.excluded_colors = payload.excluded_colors
         pref.preferred_season = payload.preferred_season
+        pref.rotation_strategy = payload.rotation_strategy
+        if payload.inferred_favorites:
+            pref.inferred_favorites = payload.inferred_favorites
 
     await db.commit()
     await db.refresh(pref)
@@ -911,7 +936,30 @@ async def generate_outfit_recommendations(
     disliked_hashes = {fb.recommendation_hash for fb in feedbacks if fb.action in ("dislike", "skip")}
     liked_hashes = {fb.recommendation_hash for fb in feedbacks if fb.action in ("like", "worn", "save")}
 
-    # 4. Group items by functional role
+    # 4. Fetch recent wear logs to penalize repeating recently worn garments and support rotation
+    today = date.today()
+    cutoff_30d = today - timedelta(days=30)
+    wear_logs_stmt = (
+        select(WearLog)
+        .where(
+            WearLog.user_id == user_id,
+            WearLog.wear_date >= cutoff_30d,
+        )
+        .options(selectinload(WearLog.items))
+    )
+    wl_res = await db.execute(wear_logs_stmt)
+    recent_wear_logs = list(wl_res.scalars().all())
+
+    # Map wardrobe_item_id -> list of wear dates (sorted descending)
+    item_wears: Dict[str, List[date]] = {}
+    for wl in recent_wear_logs:
+        for wli in wl.items:
+            if wli.wardrobe_item_id:
+                item_wears.setdefault(wli.wardrobe_item_id, []).append(wl.wear_date)
+
+    rotation_strategy = prefs.rotation_strategy if (prefs and prefs.rotation_strategy) else "balanced"
+
+    # 5. Group items by functional role
     role_map: Dict[str, List[WardrobeItem]] = {
         "top": [],
         "bottom": [],
@@ -923,7 +971,7 @@ async def generate_outfit_recommendations(
         role = _classify_role(item.category, item.name)
         role_map[role].append(item)
 
-    # 5. Form candidate combinations
+    # 6. Form candidate combinations
     candidates: List[Dict[str, Any]] = []
 
     # Template 1: Top + Bottom
@@ -958,7 +1006,7 @@ async def generate_outfit_recommendations(
             continue
         seen_hashes.add(rec_hash)
 
-        # 1. Category compatibility (0.30)
+        # 1. Category compatibility (0.25)
         has_top = any(ci[1] == "top" for ci in cand["items"])
         has_bottom = any(ci[1] == "bottom" for ci in cand["items"])
         has_dress = any(ci[1] == "dress" for ci in cand["items"])
@@ -969,7 +1017,7 @@ async def generate_outfit_recommendations(
         else:
             cat_compat = 0.75
 
-        # 2. Color harmony (0.25)
+        # 2. Color harmony (0.20)
         harmony = _calc_color_harmony([pi.color for pi in pair_items])
 
         # 3. Occasion suitability (0.20)
@@ -985,19 +1033,59 @@ async def generate_outfit_recommendations(
             pref_match += 0.20
         pref_match = max(0.0, min(1.0, pref_match))
 
-        # 5. Novelty / Feedback (0.10)
+        # 5. Rotation Health & Wear History Repeat Suppression (0.15)
+        wear_reasons: List[str] = []
+        total_item_penalty = 0.0
+        worn_count = 0
+        has_wear_history = False
+
+        for pi in pair_items:
+            wears = sorted(item_wears.get(str(pi.id), []), reverse=True)
+            if wears:
+                has_wear_history = True
+                days_ago = (today - wears[0]).days
+                if days_ago <= 1:
+                    p = 0.40
+                    wear_reasons.append(f"Worn {'today' if days_ago == 0 else 'yesterday'}")
+                elif days_ago <= 3:
+                    p = 0.22
+                    wear_reasons.append("Worn 2–3 days ago")
+                elif days_ago <= 7:
+                    p = 0.08
+                    wear_reasons.append("Worn this past week")
+                else:
+                    p = 0.00
+                total_item_penalty += p
+                if p > 0:
+                    worn_count += 1
+
+        # Multiplier based on user's rotation strategy
+        mult = 1.0
+        if rotation_strategy == "avoid_recent":
+            mult = 1.8
+        elif rotation_strategy == "max_variety":
+            mult = 1.3
+
+        avg_penalty = (total_item_penalty / len(pair_items)) if pair_items else 0.0
+        stacking = 0.15 if worn_count > 1 else 0.0
+        applied_penalty = min(0.65, (avg_penalty + stacking) * mult)
+        variety_bonus = 0.12 if (not has_wear_history and rotation_strategy == "max_variety") else 0.0
+        rotation_health = max(0.10, min(1.0, 1.0 - applied_penalty + variety_bonus))
+
+        # 6. Novelty / Feedback (0.05)
         novelty = 0.85
         if rec_hash in disliked_hashes:
-            novelty = 0.20
+            novelty = 0.15
         elif rec_hash in liked_hashes:
             novelty = 1.0
 
         final_score = round(
-            (0.30 * cat_compat)
-            + (0.25 * harmony)
+            (0.25 * cat_compat)
+            + (0.20 * harmony)
             + (0.20 * occ_score)
             + (0.15 * pref_match)
-            + (0.10 * novelty),
+            + (0.15 * rotation_health)
+            + (0.05 * novelty),
             2,
         )
 
@@ -1010,6 +1098,26 @@ async def generate_outfit_recommendations(
             title = f"{pair_items[0].name} Study"
 
         notes = _generate_editorial_notes(pair_items, occasion or "casual", harmony)
+
+        # Explicit explainability reasons
+        reasons: List[str] = []
+        if not has_wear_history:
+            reasons.append("Fresh Rotation (Unworn 30+ Days)")
+        elif total_item_penalty == 0.0:
+            reasons.append("Well Rotated (Resting > 7 Days)")
+        elif wear_reasons:
+            reasons.append(f"Recent: {wear_reasons[0]}")
+
+        if harmony >= 0.95:
+            reasons.append("Monochrome / Neutral Harmony")
+        elif harmony >= 0.90:
+            reasons.append("High Palette Synergy")
+
+        if occ_score >= 0.95:
+            reasons.append(f"Tailored for {occasion.capitalize() if occasion else 'Occasion'}")
+
+        if pref_match >= 0.90:
+            reasons.append("Matches Favorite Palette")
 
         rec_items = [
             OutfitRecommendationItem(
@@ -1031,9 +1139,11 @@ async def generate_outfit_recommendations(
                     "color_harmony": round(harmony, 2),
                     "occasion_suitability": round(occ_score, 2),
                     "preference_match": round(pref_match, 2),
+                    "rotation_health": round(rotation_health, 2),
                     "novelty": round(novelty, 2),
                 },
                 stylist_notes=notes,
+                reasons=reasons,
                 items=rec_items,
                 is_saved=False,
                 recommendation_hash=rec_hash,
@@ -1547,6 +1657,888 @@ async def reorder_outfit_items(
     db.expunge(outfit)
 
     return await get_outfit(outfit_id=outfit.id, current_user=current_user, db=db)
+
+
+# ==============================================================================
+# DRAPE STUDIO: DAILY STYLIST, WEAR LOGS, ROTATION & PLANNER ENDPOINTS
+# ==============================================================================
+
+
+@router.get(
+    "/stylist/daily",
+    response_model=DailyStylistResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get daily personalized stylist greeting and recommendation",
+)
+async def get_daily_stylist(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DailyStylistResponse:
+    """Returns today's curated pick, date context, greeting, and wardrobe rotation alert."""
+    today = date.today()
+    user_id = str(current_user.id)
+
+    # Greeting based on user name
+    user_name = (current_user.first_name or current_user.email.split("@")[0]).capitalize()
+    greeting = f"Good morning, {user_name}"
+
+    # Day of week context
+    weekday_idx = today.weekday()
+    if weekday_idx in (5, 6):
+        occasion_ctx = "Weekend Leisure & Relaxed Atelier"
+        target_occasion = "weekend"
+    elif weekday_idx == 4:
+        occasion_ctx = "Friday Transition: Desk to Dinner"
+        target_occasion = "casual"
+    else:
+        occasion_ctx = "Refined Everyday Minimalism"
+        target_occasion = "casual"
+
+    date_display = today.strftime("%A, %-d %B %Y") if hasattr(today, "strftime") else str(today)
+
+    # Seasonal guidance
+    month = today.month
+    if month in (12, 1, 2):
+        weather_summary = "Winter layering: Dense knitwear, heavyweight jersey, and structured denim."
+    elif month in (3, 4, 5):
+        weather_summary = "Spring transition: Crisp midweight cottons with relaxed trousers."
+    elif month in (6, 7, 8):
+        weather_summary = "Summer breathability: Relaxed silhouettes in airy organic cottons."
+    else:
+        weather_summary = "Autumn temperate: Layered classic tees, washed blues, and refined outerwear."
+
+    # Check recent wear log (yesterday or today)
+    yesterday = today - timedelta(days=1)
+    recent_wear_stmt = (
+        select(WearLog)
+        .where(
+            WearLog.user_id == user_id,
+            WearLog.wear_date >= yesterday,
+        )
+        .options(selectinload(WearLog.items))
+        .order_by(WearLog.wear_date.desc())
+    )
+    rw_res = await db.execute(recent_wear_stmt)
+    last_wear = rw_res.scalars().first()
+
+    recent_wear_alert = None
+    if last_wear and last_wear.items:
+        worn_names = ", ".join(it.garment_name_snapshot for it in last_wear.items[:2])
+        recent_wear_alert = f"Recently worn: {worn_names}. Today's curation emphasizes fresh rotation."
+
+    # Generate recommendations
+    recs_resp = await generate_outfit_recommendations(
+        occasion=target_occasion,
+        season="all-season",
+        limit=4,
+        current_user=current_user,
+        db=db,
+    )
+
+    todays_pick = recs_resp.recommendations[0] if recs_resp.recommendations else None
+    alternative_picks = recs_resp.recommendations[1:4] if len(recs_resp.recommendations) > 1 else []
+
+    stylist_tips = [
+        "Contrast proportions: Balance an oversized or relaxed top with straight, structured denim.",
+        "Monochrome depth: Elevate single-tone looks by layering differing fabric weights.",
+        "Timeless neutrals: Ground statement pieces with deep noir or optic crisp white.",
+        "Effortless elegance: Let clean hemlines and honest tailoring speak for themselves.",
+    ]
+    tip_index = today.day % len(stylist_tips)
+    stylist_tip = stylist_tips[tip_index]
+
+    return DailyStylistResponse(
+        greeting=greeting,
+        date_display=date_display,
+        occasion_context=occasion_ctx,
+        weather_summary=weather_summary,
+        todays_pick=todays_pick,
+        alternative_picks=alternative_picks,
+        recent_wear_alert=recent_wear_alert,
+        stylist_tip=stylist_tip,
+    )
+
+
+@router.post(
+    "/wear-logs",
+    response_model=WearLogResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record outfit or garments worn on a date",
+)
+async def create_wear_log(
+    payload: WearLogCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WearLogResponse:
+    """Creates a permanent wear log with immutable garment snapshots, enforcing user ownership."""
+    user_id = str(current_user.id)
+
+    # Date resolution
+    if payload.wear_date:
+        try:
+            wear_dt = date.fromisoformat(payload.wear_date.strip())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid wear_date format. Please use YYYY-MM-DD.",
+            )
+    else:
+        wear_dt = date.today()
+
+    # Outfit ID validation (if provided)
+    if payload.outfit_id:
+        outfit_stmt = select(Outfit).where(
+            Outfit.id == payload.outfit_id,
+            Outfit.user_id == user_id,
+        )
+        o_res = await db.execute(outfit_stmt)
+        if not o_res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Outfit '{payload.outfit_id}' not found.",
+            )
+
+    wear_log = WearLog(
+        user_id=user_id,
+        wear_date=wear_dt,
+        outfit_id=payload.outfit_id,
+        occasion=payload.occasion.strip().lower() if payload.occasion else None,
+        notes=payload.notes.strip() if payload.notes else None,
+    )
+    db.add(wear_log)
+    await db.flush()
+
+    items_to_log: List[WearLogItem] = []
+
+    # 1. From wardrobe_item_ids
+    if payload.wardrobe_item_ids:
+        dedup_ids = list(dict.fromkeys(payload.wardrobe_item_ids))
+        items_stmt = select(WardrobeItem).where(
+            WardrobeItem.id.in_(dedup_ids),
+            WardrobeItem.user_id == user_id,
+        )
+        w_res = await db.execute(items_stmt)
+        found_map = {item.id: item for item in w_res.scalars().all()}
+
+        if len(found_map) != len(dedup_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more specified wardrobe items do not belong to your account.",
+            )
+
+        for idx, wid in enumerate(dedup_ids):
+            wi = found_map[wid]
+            items_to_log.append(
+                WearLogItem(
+                    wear_log_id=wear_log.id,
+                    wardrobe_item_id=wi.id,
+                    product_id=wi.product_id,
+                    garment_name_snapshot=wi.name,
+                    category_snapshot=wi.category,
+                    color_snapshot=wi.color,
+                    image_url_snapshot=wi.image_url,
+                    display_order=idx,
+                )
+            )
+
+    # 2. From items payload
+    elif payload.items:
+        for idx, itm in enumerate(payload.items):
+            items_to_log.append(
+                WearLogItem(
+                    wear_log_id=wear_log.id,
+                    wardrobe_item_id=itm.wardrobe_item_id,
+                    product_id=itm.product_id,
+                    garment_name_snapshot=itm.garment_name,
+                    category_snapshot=itm.category,
+                    color_snapshot=itm.color,
+                    image_url_snapshot=itm.image_url,
+                    display_order=itm.display_order if itm.display_order is not None else idx,
+                )
+            )
+
+    for wli in items_to_log:
+        db.add(wli)
+
+    # Inferred learning: update StylistPreferences with worn categories & colors
+    pref_stmt = select(StylistPreferences).where(StylistPreferences.user_id == user_id)
+    pref_res = await db.execute(pref_stmt)
+    pref = pref_res.scalar_one_or_none()
+    if pref:
+        inferred = dict(pref.inferred_favorites or {})
+        color_counts = inferred.setdefault("color_counts", {})
+        cat_counts = inferred.setdefault("category_counts", {})
+        for itm in items_to_log:
+            c = itm.color_snapshot.lower().strip()
+            cat = itm.category_snapshot.lower().strip()
+            color_counts[c] = color_counts.get(c, 0) + 1
+            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+        pref.inferred_favorites = inferred
+
+    await db.commit()
+
+    # Re-query with eager loaded items
+    full_stmt = (
+        select(WearLog)
+        .where(WearLog.id == wear_log.id)
+        .options(selectinload(WearLog.items))
+    )
+    full_res = await db.execute(full_stmt)
+    full_log = full_res.scalar_one()
+
+    return WearLogResponse(
+        id=full_log.id,
+        user_id=full_log.user_id,
+        wear_date=full_log.wear_date.isoformat(),
+        outfit_id=full_log.outfit_id,
+        occasion=full_log.occasion,
+        notes=full_log.notes,
+        created_at=full_log.created_at,
+        items=[WearLogItemSchema.model_validate(it) for it in full_log.items],
+    )
+
+
+@router.get(
+    "/wear-logs",
+    response_model=WearLogListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List wear logs with date range filtering",
+)
+async def list_wear_logs(
+    days: Optional[int] = Query(None, ge=1, le=365, description="Filter to last N days"),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WearLogListResponse:
+    """Returns wear diary history sorted chronologically descending."""
+    user_id = str(current_user.id)
+    query = (
+        select(WearLog)
+        .where(WearLog.user_id == user_id)
+        .options(selectinload(WearLog.items))
+    )
+
+    if days:
+        cutoff = date.today() - timedelta(days=days)
+        query = query.where(WearLog.wear_date >= cutoff)
+
+    if start_date:
+        try:
+            s_dt = date.fromisoformat(start_date.strip())
+            query = query.where(WearLog.wear_date >= s_dt)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            e_dt = date.fromisoformat(end_date.strip())
+            query = query.where(WearLog.wear_date <= e_dt)
+        except ValueError:
+            pass
+
+    query = query.order_by(WearLog.wear_date.desc(), WearLog.created_at.desc())
+
+    # Total count
+    count_stmt = select(func.count()).select_from(query.subquery())
+    total_res = await db.execute(count_stmt)
+    total_count = total_res.scalar_one()
+
+    # Paginate
+    paged_stmt = query.offset(offset).limit(limit)
+    res = await db.execute(paged_stmt)
+    logs = list(res.scalars().all())
+
+    response_logs = [
+        WearLogResponse(
+            id=l.id,
+            user_id=l.user_id,
+            wear_date=l.wear_date.isoformat(),
+            outfit_id=l.outfit_id,
+            occasion=l.occasion,
+            notes=l.notes,
+            created_at=l.created_at,
+            items=[WearLogItemSchema.model_validate(it) for it in l.items],
+        )
+        for l in logs
+    ]
+
+    return WearLogListResponse(wear_logs=response_logs, total=total_count)
+
+
+@router.get(
+    "/wear-logs/{wear_log_id}",
+    response_model=WearLogResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get single wear log by ID",
+)
+async def get_wear_log(
+    wear_log_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WearLogResponse:
+    """Retrieves an individual wear log, verifying ownership."""
+    stmt = (
+        select(WearLog)
+        .where(
+            WearLog.id == wear_log_id,
+            WearLog.user_id == current_user.id,
+        )
+        .options(selectinload(WearLog.items))
+    )
+    res = await db.execute(stmt)
+    wl = res.scalar_one_or_none()
+
+    if not wl:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Wear log '{wear_log_id}' not found.",
+        )
+
+    return WearLogResponse(
+        id=wl.id,
+        user_id=wl.user_id,
+        wear_date=wl.wear_date.isoformat(),
+        outfit_id=wl.outfit_id,
+        occasion=wl.occasion,
+        notes=wl.notes,
+        created_at=wl.created_at,
+        items=[WearLogItemSchema.model_validate(it) for it in wl.items],
+    )
+
+
+@router.delete(
+    "/wear-logs/{wear_log_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete a wear log",
+)
+async def delete_wear_log(
+    wear_log_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, str]:
+    """Deletes a wear log, verifying customer ownership."""
+    stmt = select(WearLog).where(
+        WearLog.id == wear_log_id,
+        WearLog.user_id == current_user.id,
+    )
+    res = await db.execute(stmt)
+    wl = res.scalar_one_or_none()
+
+    if not wl:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Wear log '{wear_log_id}' not found.",
+        )
+
+    await db.delete(wl)
+    await db.commit()
+    return {"status": "success", "message": f"Wear log '{wear_log_id}' deleted."}
+
+
+@router.get(
+    "/rotation",
+    response_model=WardrobeRotationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get wardrobe garment rotation analytics and usage health",
+)
+async def get_wardrobe_rotation(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WardrobeRotationResponse:
+    """Analyzes customer's garment usage, rotation frequency, and identifies underutilized pieces."""
+    user_id = str(current_user.id)
+    today = date.today()
+    cutoff_7d = today - timedelta(days=7)
+    cutoff_30d = today - timedelta(days=30)
+
+    # 1. Fetch all wardrobe items
+    items_stmt = select(WardrobeItem).where(WardrobeItem.user_id == user_id)
+    i_res = await db.execute(items_stmt)
+    wardrobe_items = list(i_res.scalars().all())
+
+    # 2. Fetch all wear logs with items
+    wl_stmt = (
+        select(WearLog)
+        .where(WearLog.user_id == user_id)
+        .options(selectinload(WearLog.items))
+        .order_by(WearLog.wear_date.desc())
+    )
+    wl_res = await db.execute(wl_stmt)
+    wear_logs = list(wl_res.scalars().all())
+
+    # 3. Preferences for strategy
+    pref_stmt = select(StylistPreferences).where(StylistPreferences.user_id == user_id)
+    pref_res = await db.execute(pref_stmt)
+    pref = pref_res.scalar_one_or_none()
+    strat = pref.rotation_strategy if (pref and pref.rotation_strategy) else "balanced"
+
+    # 4. Aggregate wear metrics per wardrobe_item_id
+    wear_stats: Dict[str, Dict[str, Any]] = {}
+    for wl in wear_logs:
+        for itm in wl.items:
+            wid = itm.wardrobe_item_id
+            if not wid:
+                continue
+            st = wear_stats.setdefault(
+                wid,
+                {"total": 0, "last_date": None, "last_7d": 0, "last_30d": 0},
+            )
+            st["total"] += 1
+            if st["last_date"] is None or wl.wear_date > st["last_date"]:
+                st["last_date"] = wl.wear_date
+            if wl.wear_date >= cutoff_7d:
+                st["last_7d"] += 1
+            if wl.wear_date >= cutoff_30d:
+                st["last_30d"] += 1
+
+    rotation_items: List[GarmentRotationItem] = []
+    for wi in wardrobe_items:
+        st = wear_stats.get(str(wi.id), {"total": 0, "last_date": None, "last_7d": 0, "last_30d": 0})
+        total_wears = st["total"]
+        last_dt = st["last_date"].isoformat() if st["last_date"] else None
+        w7 = st["last_7d"]
+        w30 = st["last_30d"]
+
+        if total_wears == 0:
+            status_str = "unworn"
+        elif w7 >= 3 or w30 >= 8:
+            status_str = "frequent"
+        elif w30 >= 1:
+            status_str = "balanced"
+        else:
+            status_str = "underutilized"
+
+        rotation_items.append(
+            GarmentRotationItem(
+                wardrobe_item_id=str(wi.id),
+                name=wi.name,
+                category=wi.category,
+                color=wi.color,
+                image_url=wi.image_url,
+                total_wears=total_wears,
+                last_worn_date=last_dt,
+                wears_last_7_days=w7,
+                wears_last_30_days=w30,
+                rotation_status=status_str,
+            )
+        )
+
+    # Sort most worn and least worn
+    most_worn = sorted(rotation_items, key=lambda x: x.total_wears, reverse=True)[:6]
+    least_worn = sorted(rotation_items, key=lambda x: (x.total_wears, x.last_worn_date or ""))[:6]
+
+    recent_activity = [
+        WearLogResponse(
+            id=l.id,
+            user_id=l.user_id,
+            wear_date=l.wear_date.isoformat(),
+            outfit_id=l.outfit_id,
+            occasion=l.occasion,
+            notes=l.notes,
+            created_at=l.created_at,
+            items=[WearLogItemSchema.model_validate(it) for it in l.items],
+        )
+        for l in wear_logs[:5]
+    ]
+
+    return WardrobeRotationResponse(
+        total_logged_wears=len(wear_logs),
+        rotation_strategy=strat,
+        most_worn=most_worn,
+        least_worn=least_worn,
+        all_garments=rotation_items,
+        recent_activity=recent_activity,
+    )
+
+
+@router.get(
+    "/planner",
+    response_model=OutfitPlanListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List planned outfits",
+)
+async def list_outfit_plans(
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OutfitPlanListResponse:
+    """Retrieves upcoming and scheduled outfit plans for authenticated customer."""
+    user_id = str(current_user.id)
+    query = select(OutfitPlan).where(OutfitPlan.user_id == user_id)
+
+    if start_date:
+        try:
+            s_dt = date.fromisoformat(start_date.strip())
+            query = query.where(OutfitPlan.plan_date >= s_dt)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            e_dt = date.fromisoformat(end_date.strip())
+            query = query.where(OutfitPlan.plan_date <= e_dt)
+        except ValueError:
+            pass
+
+    if status_filter:
+        query = query.where(OutfitPlan.status == status_filter.strip().lower())
+
+    query = query.order_by(OutfitPlan.plan_date.asc())
+    res = await db.execute(query)
+    plans = list(res.scalars().all())
+
+    resp_plans = [
+        OutfitPlanResponse(
+            id=p.id,
+            user_id=p.user_id,
+            plan_date=p.plan_date.isoformat(),
+            outfit_id=p.outfit_id,
+            occasion=p.occasion,
+            notes=p.notes,
+            status=p.status,
+            items=p.items or [],
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+        )
+        for p in plans
+    ]
+    return OutfitPlanListResponse(plans=resp_plans, total=len(resp_plans))
+
+
+@router.post(
+    "/planner",
+    response_model=OutfitPlanResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Schedule an outfit on the calendar",
+)
+async def create_outfit_plan(
+    payload: OutfitPlanCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OutfitPlanResponse:
+    """Schedules an outfit plan for an upcoming date, validating ownership of referenced garments."""
+    user_id = str(current_user.id)
+
+    try:
+        p_dt = date.fromisoformat(payload.plan_date.strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid plan_date format. Please use YYYY-MM-DD.",
+        )
+
+    # Resolve items
+    plan_items: List[dict] = []
+    if payload.wardrobe_item_ids:
+        dedup_ids = list(dict.fromkeys(payload.wardrobe_item_ids))
+        items_stmt = select(WardrobeItem).where(
+            WardrobeItem.id.in_(dedup_ids),
+            WardrobeItem.user_id == user_id,
+        )
+        w_res = await db.execute(items_stmt)
+        found = {item.id: item for item in w_res.scalars().all()}
+        if len(found) != len(dedup_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more specified wardrobe items do not belong to your account.",
+            )
+        for wid in dedup_ids:
+            wi = found[wid]
+            plan_items.append(
+                {
+                    "wardrobe_item_id": wi.id,
+                    "product_id": wi.product_id,
+                    "name": wi.name,
+                    "category": wi.category,
+                    "color": wi.color,
+                    "image_url": wi.image_url,
+                }
+            )
+    elif payload.items:
+        plan_items = [itm.model_dump() for itm in payload.items]
+
+    plan = OutfitPlan(
+        user_id=user_id,
+        plan_date=p_dt,
+        outfit_id=payload.outfit_id,
+        occasion=payload.occasion.strip().lower() if payload.occasion else None,
+        notes=payload.notes.strip() if payload.notes else None,
+        status="planned",
+        items=plan_items,
+    )
+    db.add(plan)
+    await db.commit()
+    await db.refresh(plan)
+
+    return OutfitPlanResponse(
+        id=plan.id,
+        user_id=plan.user_id,
+        plan_date=plan.plan_date.isoformat(),
+        outfit_id=plan.outfit_id,
+        occasion=plan.occasion,
+        notes=plan.notes,
+        status=plan.status,
+        items=plan.items or [],
+        created_at=plan.created_at,
+        updated_at=plan.updated_at,
+    )
+
+
+@router.patch(
+    "/planner/{plan_id}",
+    response_model=OutfitPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update an outfit plan",
+)
+async def update_outfit_plan(
+    plan_id: str,
+    payload: OutfitPlanUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OutfitPlanResponse:
+    """Updates date, status, notes, or occasion for a planned outfit."""
+    stmt = select(OutfitPlan).where(
+        OutfitPlan.id == plan_id,
+        OutfitPlan.user_id == current_user.id,
+    )
+    res = await db.execute(stmt)
+    plan = res.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Outfit plan '{plan_id}' not found.",
+        )
+
+    if payload.plan_date:
+        try:
+            plan.plan_date = date.fromisoformat(payload.plan_date.strip())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid plan_date format. Please use YYYY-MM-DD.",
+            )
+
+    if payload.occasion is not None:
+        plan.occasion = payload.occasion.strip().lower() if payload.occasion else None
+    if payload.notes is not None:
+        plan.notes = payload.notes.strip() if payload.notes else None
+    if payload.status is not None:
+        plan.status = payload.status.strip().lower()
+    if payload.items is not None:
+        plan.items = [itm.model_dump() for itm in payload.items]
+
+    await db.commit()
+    await db.refresh(plan)
+
+    return OutfitPlanResponse(
+        id=plan.id,
+        user_id=plan.user_id,
+        plan_date=plan.plan_date.isoformat(),
+        outfit_id=plan.outfit_id,
+        occasion=plan.occasion,
+        notes=plan.notes,
+        status=plan.status,
+        items=plan.items or [],
+        created_at=plan.created_at,
+        updated_at=plan.updated_at,
+    )
+
+
+@router.delete(
+    "/planner/{plan_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete an outfit plan",
+)
+async def delete_outfit_plan(
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, str]:
+    """Deletes an outfit plan owned by user."""
+    stmt = select(OutfitPlan).where(
+        OutfitPlan.id == plan_id,
+        OutfitPlan.user_id == current_user.id,
+    )
+    res = await db.execute(stmt)
+    plan = res.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Outfit plan '{plan_id}' not found.",
+        )
+
+    await db.delete(plan)
+    await db.commit()
+    return {"status": "success", "message": f"Outfit plan '{plan_id}' deleted."}
+
+
+@router.post(
+    "/planner/{plan_id}/mark-worn",
+    response_model=WearLogResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mark planned outfit as worn and convert to permanent wear log",
+)
+async def mark_plan_worn(
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WearLogResponse:
+    """Converts a planned outfit into a permanent historical WearLog record."""
+    user_id = str(current_user.id)
+    stmt = select(OutfitPlan).where(
+        OutfitPlan.id == plan_id,
+        OutfitPlan.user_id == user_id,
+    )
+    res = await db.execute(stmt)
+    plan = res.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Outfit plan '{plan_id}' not found.",
+        )
+
+    plan.status = "worn"
+
+    wear_log = WearLog(
+        user_id=user_id,
+        wear_date=plan.plan_date,
+        outfit_id=plan.outfit_id,
+        occasion=plan.occasion,
+        notes=plan.notes or "Completed from outfit planner",
+    )
+    db.add(wear_log)
+    await db.flush()
+
+    for idx, itm in enumerate(plan.items or []):
+        db.add(
+            WearLogItem(
+                wear_log_id=wear_log.id,
+                wardrobe_item_id=itm.get("wardrobe_item_id"),
+                product_id=itm.get("product_id"),
+                garment_name_snapshot=itm.get("name") or "Garment",
+                category_snapshot=itm.get("category") or "apparel",
+                color_snapshot=itm.get("color") or "neutral",
+                image_url_snapshot=itm.get("image_url"),
+                display_order=idx,
+            )
+        )
+
+    await db.commit()
+
+    full_stmt = (
+        select(WearLog)
+        .where(WearLog.id == wear_log.id)
+        .options(selectinload(WearLog.items))
+    )
+    full_res = await db.execute(full_stmt)
+    full_log = full_res.scalar_one()
+
+    return WearLogResponse(
+        id=full_log.id,
+        user_id=full_log.user_id,
+        wear_date=full_log.wear_date.isoformat(),
+        outfit_id=full_log.outfit_id,
+        occasion=full_log.occasion,
+        notes=full_log.notes,
+        created_at=full_log.created_at,
+        items=[WearLogItemSchema.model_validate(it) for it in full_log.items],
+    )
+
+
+@router.get(
+    "/style-profile",
+    response_model=StyleProfileResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get evolving personal style profile and insights",
+)
+async def get_style_profile(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StyleProfileResponse:
+    """Returns multi-dimensional personal style profile combining declared preferences and wear behaviors."""
+    user_id = str(current_user.id)
+
+    # 1. Preferences
+    pref_stmt = select(StylistPreferences).where(StylistPreferences.user_id == user_id)
+    p_res = await db.execute(pref_stmt)
+    pref = p_res.scalar_one_or_none()
+
+    style_dir = pref.style_direction if pref else "contemporary_minimal"
+    rot_strat = pref.rotation_strategy if pref else "balanced"
+    fav_occ = pref.favorite_occasions if pref else ["casual", "office", "weekend"]
+    fav_col = pref.favorite_colors if pref else ["black", "white", "navy", "beige"]
+
+    # 2. Wardrobe items distribution
+    items_stmt = select(WardrobeItem).where(WardrobeItem.user_id == user_id)
+    i_res = await db.execute(items_stmt)
+    items = list(i_res.scalars().all())
+
+    color_dist: Dict[str, int] = {}
+    cat_dist: Dict[str, int] = {}
+    for it in items:
+        c = it.color.capitalize()
+        cat = it.category.capitalize()
+        color_dist[c] = color_dist.get(c, 0) + 1
+        cat_dist[cat] = cat_dist.get(cat, 0) + 1
+
+    # 3. Wear counts and saved outfits
+    wl_count_stmt = select(func.count(WearLog.id)).where(WearLog.user_id == user_id)
+    wl_res = await db.execute(wl_count_stmt)
+    total_wears = wl_res.scalar_one()
+
+    outfit_count_stmt = select(func.count(Outfit.id)).where(Outfit.user_id == user_id)
+    o_res = await db.execute(outfit_count_stmt)
+    total_outfits = o_res.scalar_one()
+
+    # 4. Insights derivation
+    insights: List[StyleProfileInsight] = []
+
+    # Palette insight
+    top_color = max(color_dist.items(), key=lambda x: x[1])[0] if color_dist else "Neutral"
+    insights.append(
+        StyleProfileInsight(
+            title="Signature Palette Anchor",
+            description=f"{top_color} anchors your wardrobe aesthetic, lending effortless cross-garment interchangeability.",
+            category="palette",
+        )
+    )
+
+    # Silhouette insight
+    top_cat = max(cat_dist.items(), key=lambda x: x[1])[0] if cat_dist else "Apparel"
+    insights.append(
+        StyleProfileInsight(
+            title="Core Silhouette Proportion",
+            description=f"Your collection emphasizes tailored {top_cat}, facilitating relaxed yet structured daily combinations.",
+            category="silhouette",
+        )
+    )
+
+    # Rotation insight
+    insights.append(
+        StyleProfileInsight(
+            title="Wardrobe Rotation Health",
+            description=f"Operating on '{rot_strat.replace('_', ' ').capitalize()}' rotation strategy with {total_wears} logged wears across your wardrobe.",
+            category="rotation",
+        )
+    )
+
+    return StyleProfileResponse(
+        style_direction=style_dir,
+        rotation_strategy=rot_strat,
+        favorite_occasions=fav_occ,
+        favorite_colors=fav_col,
+        color_distribution=color_dist,
+        category_distribution=cat_dist,
+        total_wears=total_wears,
+        total_saved_outfits=total_outfits,
+        total_wardrobe_items=len(items),
+        insights=insights,
+    )
 
 
 # ==============================================================================

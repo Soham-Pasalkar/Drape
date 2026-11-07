@@ -8,6 +8,9 @@ from app.domain.models.wardrobe import (
     OutfitItem,
     StylistPreferences,
     OutfitFeedback,
+    WearLog,
+    WearLogItem,
+    OutfitPlan,
 )
 
 __all__ = [
@@ -30,4 +33,7 @@ __all__ = [
     "OutfitItem",
     "StylistPreferences",
     "OutfitFeedback",
+    "WearLog",
+    "WearLogItem",
+    "OutfitPlan",
 ]
