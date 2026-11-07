@@ -5,10 +5,12 @@
  * 1. Catalog domain model & 18 canonical demo products.
  * 2. Balanced category assortment (5 Tops, 3 Shirts, 3 Trousers, 3 Outerwear, 2 Dresses, 2 Skirts).
  * 3. Product-to-3D GLB mapping integrity (real assets, zero fake compatibility).
- * 4. Existing local image path resolution.
- * 5. Multi-faceted filtering (category, search, size, color) and sorting strategies.
- * 6. Product detail retrieval and Try-On Studio URL generation.
- * 7. Cart line items, integer monetary calculations, and inventory integrity.
+ * 4. Product photography integrity: every image has color, view, and verified local disk file.
+ * 5. Colour-to-image relationships: filtering by color displays matching photograph.
+ * 6. Product card hover behavior: no hover swap to unrelated garments or different colors.
+ * 7. Multi-faceted filtering (category, search, size, color, compound size+color) and sorting.
+ * 8. Product detail retrieval and Try-On Studio URL generation.
+ * 9. Cart line items, integer monetary calculations, and inventory integrity.
  */
 
 const fs = require('fs');
@@ -51,6 +53,9 @@ const {
   getProductTryOnStatus,
   buildTryOnUrl,
   formatCentsToUsd,
+  isColorMatch,
+  resolveProductImageForColor,
+  resolveCardDisplayImages,
 } = loadTsModule('src/features/catalog/utils/product-mapping.ts');
 
 const catalog = new CatalogService(DEMO_PRODUCTS);
@@ -190,29 +195,152 @@ test('Try-On URL generation preserves garment ID and return-to-product context',
 });
 
 // ==========================================
-// SUITE 3: CATALOG FILTERING, SEARCH & SORTING
+// SUITE 3: PRODUCT IMAGE INTEGRITY & COLOUR RESOLUTION
+// ==========================================
+suite('Product Image Integrity & Colour Resolution');
+
+test('every product image has defined color, valid view tag, and non-empty alt text', () => {
+  const validViews = new Set(['front', 'back', 'detail', 'editorial']);
+
+  for (const p of DEMO_PRODUCTS) {
+    assert(p.images.length >= 1, `Product ${p.slug} must have at least 1 image`);
+    for (const img of p.images) {
+      assert(typeof img.color === 'string' && img.color.length > 0, `Missing color on image ${img.id} for ${p.slug}`);
+      assert(validViews.has(img.view), `Invalid view "${img.view}" on image ${img.id} for ${p.slug}`);
+      assert(typeof img.alt === 'string' && img.alt.length > 5, `Missing or brief alt on image ${img.id} for ${p.slug}`);
+    }
+  }
+});
+
+test('every availableColor and variant has a photograph matching its color', () => {
+  for (const p of DEMO_PRODUCTS) {
+    for (const color of p.availableColors) {
+      const match = resolveProductImageForColor(p, color.name);
+      assert(
+        match !== undefined,
+        `No photograph found representing color "${color.name}" on product ${p.slug}`
+      );
+      assert(
+        isColorMatch(match.color, color.name),
+        `Resolved photograph color "${match.color}" does not match requested "${color.name}" on ${p.slug}`
+      );
+    }
+
+    for (const variant of p.variants) {
+      const match = resolveProductImageForColor(p, variant.color);
+      assert(
+        match !== undefined,
+        `No photograph found for variant ${variant.sku} color "${variant.color}" on ${p.slug}`
+      );
+    }
+  }
+});
+
+test('product card hover never swaps to an unrelated garment or different color', () => {
+  for (const p of DEMO_PRODUCTS) {
+    const { primaryImage, secondaryImage, hasAlternateView } = resolveCardDisplayImages(p);
+
+    if (hasAlternateView) {
+      assert(
+        secondaryImage !== primaryImage,
+        `hasAlternateView is true but secondaryImage equals primaryImage on ${p.slug}`
+      );
+      // Verify secondary image belongs to the same product and same color
+      const secImgObj = p.images.find((img) => img.url === secondaryImage);
+      const priImgObj = p.images.find((img) => img.url === primaryImage);
+      assert(secImgObj !== undefined, `Secondary image for ${p.slug} not in product.images`);
+      assert(
+        isColorMatch(secImgObj.color, priImgObj.color),
+        `Secondary image color (${secImgObj.color}) does not match primary image color (${priImgObj.color}) on ${p.slug}`
+      );
+    } else {
+      assert(
+        secondaryImage === primaryImage,
+        `Product ${p.slug} has no alternate view, hover must retain primaryImage`
+      );
+    }
+  }
+});
+
+test('color filtering displays matching color photograph on product cards', () => {
+  // Test filtering for Noir / Black
+  const noirProducts = catalog.filterAndSortProducts({
+    category: 'all',
+    query: '',
+    size: '',
+    color: 'Noir',
+    sortBy: 'featured',
+  });
+
+  assert(noirProducts.total >= 4, `Expected at least 4 Noir products, found ${noirProducts.total}`);
+
+  for (const p of noirProducts.items) {
+    const cardImages = resolveCardDisplayImages(p, 'Noir');
+    assert(
+      isColorMatch(cardImages.matchedColor, 'Noir'),
+      `Product card for ${p.slug} displayed color "${cardImages.matchedColor}" instead of Noir`
+    );
+  }
+
+  // Test filtering for Concrete
+  const concreteProducts = catalog.filterAndSortProducts({
+    category: 'all',
+    query: '',
+    size: '',
+    color: 'Concrete',
+    sortBy: 'featured',
+  });
+
+  assert(concreteProducts.total === 1, `Expected 1 Concrete product, found ${concreteProducts.total}`);
+  const heavyTee = concreteProducts.items[0];
+  const heavyCard = resolveCardDisplayImages(heavyTee, 'Concrete');
+  assert(
+    isColorMatch(heavyCard.matchedColor, 'Concrete'),
+    `Heavyweight boxy tee card displayed "${heavyCard.matchedColor}" instead of Concrete`
+  );
+  assert(
+    heavyCard.primaryImage === '/images/pexels-photo-38347378.avif',
+    `Heavyweight boxy tee primary image mismatch: ${heavyCard.primaryImage}`
+  );
+});
+
+// ==========================================
+// SUITE 4: CATALOG FILTERING, SEARCH & SORTING
 // ==========================================
 suite('Catalog Filtering, Search & Sorting');
 
-test('filtering by category returns only products in that category', () => {
-  const tops = catalog.filterAndSortProducts({
-    category: 'tops',
-    query: '',
-    size: '',
-    color: '',
-    sortBy: 'featured',
-  });
-  assert(tops.total === 5, `Expected 5 tops, got ${tops.total}`);
-  assert(tops.items.every((p) => p.category === 'tops'), 'Non-top product found in tops filter');
+test('filtering by category strictly isolates products without cross-category pollution', () => {
+  const categories = ['tops', 'shirts', 'trousers', 'outerwear', 'dresses', 'skirts'];
+  const expectedAssortment = {
+    tops: 5,
+    shirts: 3,
+    trousers: 3,
+    outerwear: 3,
+    dresses: 2,
+    skirts: 2,
+  };
 
-  const outerwear = catalog.filterAndSortProducts({
-    category: 'outerwear',
-    query: '',
-    size: '',
-    color: '',
-    sortBy: 'featured',
-  });
-  assert(outerwear.total === 3, `Expected 3 outerwear, got ${outerwear.total}`);
+  for (const cat of categories) {
+    const filtered = catalog.filterAndSortProducts({
+      category: cat,
+      query: '',
+      size: '',
+      color: '',
+      sortBy: 'featured',
+    });
+
+    assert(
+      filtered.total === expectedAssortment[cat],
+      `Category ${cat} expected ${expectedAssortment[cat]} items, got ${filtered.total}`
+    );
+
+    for (const p of filtered.items) {
+      assert(
+        p.category === cat,
+        `Cross-category pollution: product ${p.slug} with category "${p.category}" found in filter for "${cat}"`
+      );
+    }
+  }
 });
 
 test('lexical search by keyword across name, description and textile', () => {
@@ -246,24 +374,35 @@ test('filtering by size matches products with available in-stock size variants',
   });
   assert(sizeXL.total > 0, 'No products found for size XL');
   for (const p of sizeXL.items) {
-    const hasInStockXL = p.variants.some((v) => v.size === 'XL' && v.inStock);
+    const hasInStockXL = p.variants.some((v) => v.size === 'XL' && v.inStock && v.isActive);
     assert(hasInStockXL, `Product ${p.slug} in size XL results has no in-stock XL variant`);
   }
 });
 
-test('filtering by color matches products offering that color', () => {
-  const noirProducts = catalog.filterAndSortProducts({
-    category: 'all',
-    query: '',
-    size: '',
-    color: 'Noir',
+test('compound filtering strictly matches a single variant with BOTH size AND color in stock', () => {
+  // Cashmere top has Heather Sand in XS, S, M, L, XL, and Midnight Noir in S, M, L (NO XL in Noir!)
+  const cashmereSandXL = catalog.filterAndSortProducts({
+    category: 'tops',
+    query: 'cashmere',
+    size: 'XL',
+    color: 'Heather Sand',
     sortBy: 'featured',
   });
-  assert(noirProducts.total >= 4, `Expected at least 4 Noir products, found ${noirProducts.total}`);
-  for (const p of noirProducts.items) {
-    const hasColor = p.availableColors.some((c) => c.name.toLowerCase() === 'noir');
-    assert(hasColor, `Product ${p.slug} has no Noir color option`);
-  }
+  assert(cashmereSandXL.total === 1, `Expected Heather Sand XL to match 1 product, got ${cashmereSandXL.total}`);
+  assert(cashmereSandXL.items[0].slug === 'cashmere-long-sleeve-top', 'Cashmere top should match Heather Sand XL');
+
+  const cashmereNoirXL = catalog.filterAndSortProducts({
+    category: 'tops',
+    query: 'cashmere',
+    size: 'XL',
+    color: 'Midnight Noir',
+    sortBy: 'featured',
+  });
+  // Midnight Noir does NOT exist in size XL for cashmere top, so it must return 0 items!
+  assert(
+    cashmereNoirXL.total === 0,
+    `Compound filter defect: Midnight Noir XL returned ${cashmereNoirXL.total} products despite having 0 stock/no variant`
+  );
 });
 
 test('sorting by price low to high and high to low', () => {
@@ -308,7 +447,7 @@ test('category facets return accurate counts matching total', () => {
 });
 
 // ==========================================
-// SUITE 4: SHOPPING BAG MONETARY CALCULATIONS
+// SUITE 5: SHOPPING BAG MONETARY CALCULATIONS
 // ==========================================
 suite('Shopping Bag Monetary & Quantity Integrity');
 

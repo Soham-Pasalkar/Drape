@@ -98,3 +98,4 @@ export function useCatalog(options: UseCatalogOptions = {}) {
     clearAllFilters,
   };
 }
+

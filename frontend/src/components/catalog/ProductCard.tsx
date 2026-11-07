@@ -5,18 +5,23 @@ import Link from "next/link";
 import Image from "next/image";
 import { Sparkles, ArrowUpRight } from "lucide-react";
 import { Product } from "@/features/catalog/types";
-import { getProductTryOnStatus } from "@/features/catalog/utils/product-mapping";
+import {
+  getProductTryOnStatus,
+  resolveCardDisplayImages,
+  isColorMatch,
+} from "@/features/catalog/utils/product-mapping";
 
 interface ProductCardProps {
   product: Product;
+  selectedColor?: string;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({ product, selectedColor }: ProductCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const tryOnStatus = getProductTryOnStatus(product);
 
-  const primaryImage = product.images[0]?.url || "/images/collection-essentials.jpg";
-  const secondaryImage = product.images[1]?.url || primaryImage;
+  const { primaryImage, secondaryImage, hasAlternateView, matchedColor } =
+    resolveCardDisplayImages(product, selectedColor);
 
   return (
     <div
@@ -30,8 +35,8 @@ export default function ProductCard({ product }: ProductCardProps) {
         className="relative aspect-[3/4] w-full overflow-hidden bg-ink-black/5 block border border-ink-black/10"
       >
         <Image
-          src={isHovered ? secondaryImage : primaryImage}
-          alt={product.name}
+          src={isHovered && hasAlternateView ? secondaryImage : primaryImage}
+          alt={`${product.name}${matchedColor ? ` in ${matchedColor}` : ""}`}
           fill
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           className="object-cover object-center transition-all duration-700 ease-out group-hover:scale-105"
@@ -83,17 +88,30 @@ export default function ProductCard({ product }: ProductCardProps) {
 
           {/* Color Preview Swatches */}
           <div className="flex items-center space-x-1">
-            {product.availableColors.map((color) => (
-              <span
-                key={color.name}
-                className="w-2.5 h-2.5 rounded-full border border-ink-black/30 inline-block"
-                style={{ backgroundColor: color.code }}
-                title={color.name}
-              />
-            ))}
+            {product.availableColors.map((color) => {
+              const isSelected = selectedColor
+                ? isColorMatch(color.name, selectedColor)
+                : matchedColor
+                ? isColorMatch(color.name, matchedColor)
+                : false;
+
+              return (
+                <span
+                  key={color.name}
+                  className={`w-2.5 h-2.5 rounded-full inline-block transition-all ${
+                    isSelected
+                      ? "ring-2 ring-electric-blue ring-offset-1 border border-ink-black/80 scale-110"
+                      : "border border-ink-black/30"
+                  }`}
+                  style={{ backgroundColor: color.code }}
+                  title={color.name}
+                />
+              );
+            })}
           </div>
         </div>
       </div>
     </div>
   );
 }
+

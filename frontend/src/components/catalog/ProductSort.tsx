@@ -38,3 +38,4 @@ export default function ProductSort({ value, onChange }: ProductSortProps) {
     </div>
   );
 }
+

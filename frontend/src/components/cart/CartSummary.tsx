@@ -89,3 +89,4 @@ export default function CartSummary({ subtotal, totalItems }: CartSummaryProps) 
     </div>
   );
 }
+

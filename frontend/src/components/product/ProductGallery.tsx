@@ -1,22 +1,37 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { Sparkles, ZoomIn } from "lucide-react";
 import { ProductImage } from "@/features/catalog/types";
+import { isColorMatch } from "@/features/catalog/utils/product-mapping";
 
 interface ProductGalleryProps {
   images: ProductImage[];
   productName: string;
   isTryOnCompatible: boolean;
+  selectedColor?: string;
 }
 
 export default function ProductGallery({
   images,
   productName,
   isTryOnCompatible,
+  selectedColor,
 }: ProductGalleryProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Automatically update the displayed photo whenever customer selects a different color
+  useEffect(() => {
+    if (!selectedColor) return;
+    const matchIdx = images.findIndex(
+      (img) => img.color && isColorMatch(img.color, selectedColor)
+    );
+    if (matchIdx !== -1) {
+      setSelectedIndex(matchIdx);
+    }
+  }, [selectedColor, images]);
+
   const activeImage = images[selectedIndex] || {
     id: "fallback",
     url: "/images/collection-essentials.jpg",
@@ -84,3 +99,4 @@ export default function ProductGallery({
     </div>
   );
 }
+

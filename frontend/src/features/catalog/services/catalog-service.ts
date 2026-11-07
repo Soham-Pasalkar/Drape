@@ -14,6 +14,7 @@ import {
   ProductCategory,
   ProductColor,
 } from "../types";
+import { isColorMatch } from "../utils/product-mapping";
 
 export const CATEGORY_METADATA: Array<{ id: ProductCategory; label: string }> = [
   { id: "tops", label: "Tops & Tees" },
@@ -147,21 +148,32 @@ export class CatalogService {
       });
     }
 
-    // 3. Size Filter
-    if (filters.size && filters.size.trim()) {
-      const sizeTarget = filters.size.trim().toUpperCase();
+    // 3 & 4. Size & Color Filter (Supporting strict single-variant compound matching)
+    const sizeTarget = filters.size ? filters.size.trim().toUpperCase() : "";
+    const colorTarget = filters.color ? filters.color.trim() : "";
+
+    if (sizeTarget && colorTarget) {
+      // Must match a single physical variant matching BOTH size and color in stock
+      result = result.filter((p) =>
+        p.variants.some(
+          (v) =>
+            v.size.toUpperCase() === sizeTarget &&
+            isColorMatch(v.color, colorTarget) &&
+            v.inStock &&
+            v.isActive
+        )
+      );
+    } else if (sizeTarget) {
       result = result.filter((p) =>
         p.variants.some(
           (v) => v.size.toUpperCase() === sizeTarget && v.inStock && v.isActive
         )
       );
-    }
-
-    // 4. Color Filter
-    if (filters.color && filters.color.trim()) {
-      const colorTarget = filters.color.trim().toLowerCase();
+    } else if (colorTarget) {
       result = result.filter((p) =>
-        p.availableColors.some((c) => c.name.toLowerCase() === colorTarget)
+        p.variants.some(
+          (v) => isColorMatch(v.color, colorTarget) && v.inStock && v.isActive
+        )
       );
     }
 
@@ -197,3 +209,4 @@ export class CatalogService {
 }
 
 export const catalogService = new CatalogService();
+

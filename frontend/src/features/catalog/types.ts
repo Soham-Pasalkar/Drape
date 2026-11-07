@@ -37,6 +37,8 @@ export interface ProductImage {
   alt: string;
   isPrimary: boolean;
   displayOrder: number;
+  color?: string;
+  view?: "front" | "back" | "detail" | "editorial";
 }
 
 export interface ProductColor {
@@ -105,3 +107,4 @@ export interface CategoryFacet {
   label: string;
   count: number;
 }
+

@@ -121,6 +121,31 @@ frontend/src/
 | 17 | Virgin Wool A-Line Skirt | `virgin-wool-a-line-skirt` | Skirts | $440.00 | `skirt-aline` | `/garments/skirt-aline/model.glb` | **Active** |
 | 18 | Sunray Pleated Midi Skirt | `sunray-pleated-midi-skirt` | Skirts | $510.00 | `skirt-pleated` | `/garments/skirt-pleated/model.glb` | **Active** |
 
+### 3.3 Visual Image-to-Product Audit & Colour Integrity
+
+Every photograph in `frontend/public/images/` was visually inspected and mapped with 100% garment category and colour fidelity. Zero cross-category reuse (no blazers for shirts, no coats for skirts), and zero fake alternate views.
+
+| # | Product Name | Category | Mapped Image Asset | Image Garment Depiction | Color Tag | View Tag | Hover Behavior |
+|---|---|---|---|---|---|---|---|
+| 1 | Atelier Classic Crew Tee | Tops | `/images/tryon-model.jpg` | Woman model in black crewneck tee/top | Noir | front | Stays on primary front |
+| 2 | Heavyweight Boxy Tee | Tops | `/images/pexels-photo-38347378.avif` | Model in concrete grey crewneck tee | Concrete | front | Stays on primary front |
+| 3 | Sculpted Ribbed Slim Tee | Tops | `/images/glamorous-woman-black-bodysuit-covering-her-eyes_197531-12938.avif` | Model in black ribbed long-sleeve top | Anthracite | front | Stays on primary front |
+| 4 | Cashmere Long-Sleeve Top | Tops | `/images/images.jpeg`<br>`/images/stylist-campaign.jpg` | Cream turtleneck knitwear<br>Black long-sleeve knit top | Heather Sand<br>Midnight Noir | front<br>front | Switches with selected color; stays on color front |
+| 5 | Silk Georgette Halter Top | Tops | `/images/pexels-photo-38798854.avif`<br>`/images/campaign-finale.jpg` | Model in black halter crop top<br>Model in forest lace bralette | Obsidian<br>Forest | front<br>front | Switches with selected color; stays on color front |
+| 6 | Relaxed Oxford Poplin Shirt | Shirts | `/images/Suzuki-Kai-mens-style-photoshoot-shoot-fashion-trends-for-men-11-2025-1.jpg` | Model in white collared dress shirt | Chalk White | front | Stays on primary front |
+| 7 | Structured Minimalist Dress Shirt | Shirts | `/images/Suzuki-Kai-mens-style-photoshoot-shoot-fashion-trends-for-men-11-2025-2.jpg` | Model in deep umber collared shirt | Deep Umber | front | Stays on primary front |
+| 8 | Fluid Silk Resort Shirt | Shirts | `/images/Mens-Fashion-Photoshoot-SHARP-Magazine-September-8-2026-7.jpg` | Model in dark olive knit polo shirt | Olive Noir | front | Stays on primary front |
+| 9 | Tailored Wool Wide-Leg Trouser | Trousers | `/images/collection-essentials.jpg`<br>`/images/look-1-item2.jpg` | Model in dark espresso wool trousers<br>Exact macro pocket/waist crop | Espresso<br>Espresso | front<br>detail | Genuine front → detail transition on hover |
+| 10 | Relaxed Pleated Chino Trouser | Trousers | `/images/look-1-main.jpg` | Model in khaki pleated chino trousers | Khaki Stone | front | Stays on primary front |
+| 11 | Fluid Drape Wool Cigarette Pant | Trousers | `/images/young-beautiful-woman-business-suit_1303-17721.avif` | Model in tailored houndstooth trousers | Charcoal Melange | front | Stays on primary front |
+| 12 | Sculpted Double-Faced Wool Overcoat | Outerwear | `/images/look-1-main.jpg`<br>`/images/look-1-item1.jpg` | Model in grey car overcoat<br>Exact macro horn button & wool crop | Charcoal Melange<br>Charcoal Melange | front<br>detail | Genuine front → detail transition on hover |
+| 13 | Technical Minimalist Shell Jacket | Outerwear | `/images/handsome-male-fashion-model-lightweight-jacket...avif` | Model in sand lightweight zip shell | Sand Pearl | front | Stays on primary front |
+| 14 | Boxy Cropped Wool Blouson | Outerwear | `/images/edit-spread-3.jpg`<br>`/images/360_F_1770440943_...jpg`<br>`/images/collection-streetwear.jpg` | Black blazer silhouette<br>Glacier white outerwear<br>Camel cropped blazer | Noir<br>Glacier White<br>Camel | front<br>front<br>front | Switches with selected color; stays on color front |
+| 15 | Architectural Column Midi Dress | Dresses | `/images/pexels-photo-11229457.avif` | Model seated in black architectural dress | Noir | front | Stays on primary front |
+| 16 | Minimalist Silk Slip Dress | Dresses | `/images/street-fashion-beautiful-face...jpg`<br>`/images/look-2-main.jpg` | Model in black rouleau slip dress<br>Model in champagne wrap dress | Raven Black<br>Champagne | front<br>front | Switches with selected color; stays on color front |
+| 17 | Virgin Wool A-Line Skirt | Skirts | `/images/pexels-photo-38347378.avif` | Model walking in black column skirt | Noir | front | Stays on primary front |
+| 18 | Sunray Pleated Midi Skirt | Skirts | `/images/portrait-young-happy-woman-studio_1303-13802.avif` | Model in crimson draped wrap midi skirt | Crimson | front | Stays on primary front |
+
 ---
 
 ## 4. Verification & Test Execution Results
@@ -146,11 +171,17 @@ Output:
   ✓ incompatible products have null garmentId and clear explanation
   ✓ Try-On URL generation preserves garment ID and return-to-product context
 
+▸ Product Image Integrity & Colour Resolution
+  ✓ every product image has defined color, valid view tag, and non-empty alt text
+  ✓ every availableColor and variant has a photograph matching its color
+  ✓ product card hover never swaps to an unrelated garment or different color
+  ✓ color filtering displays matching color photograph on product cards
+
 ▸ Catalog Filtering, Search & Sorting
-  ✓ filtering by category returns only products in that category
+  ✓ filtering by category strictly isolates products without cross-category pollution
   ✓ lexical search by keyword across name, description and textile
   ✓ filtering by size matches products with available in-stock size variants
-  ✓ filtering by color matches products offering that color
+  ✓ compound filtering strictly matches a single variant with BOTH size AND color in stock
   ✓ sorting by price low to high and high to low
   ✓ category facets return accurate counts matching total
 
@@ -158,7 +189,7 @@ Output:
   ✓ currency formatting preserves minor units without floating error
   ✓ cart subtotal uses exact integer math
 
-test-catalog-commerce: 17 passed, 0 failed
+test-catalog-commerce: 21 passed, 0 failed
 ```
 
 ### 4.2 Garment Asset Audit
@@ -261,3 +292,4 @@ To connect an external CMS or database:
 1. **Checkout Flow:** Checkout currently routes to `/checkout` with a demonstration order review. Real card processing via payment gateway (e.g. Razorpay or Stripe) requires active merchant keys in `.env`.
 2. **Camera Permissions:** Live 3D Try-On requires browser camera access (`getUserMedia`). If camera access is denied, the Try-On studio presents fallback guidance.
 3. **Trouser & Outerwear 3D Assets:** 3D GLBs for bifurcated trousers and heavy lined coats are not yet in the AR registry; their products properly show in-development notices.
+

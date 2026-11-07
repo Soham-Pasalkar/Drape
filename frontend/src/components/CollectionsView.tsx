@@ -104,7 +104,11 @@ export default function CollectionsView({ initialCategory }: CollectionsViewProp
         </div>
 
         {/* 4. Product Grid */}
-        <ProductGrid products={products} onResetFilters={handleClearAll} />
+        <ProductGrid
+          products={products}
+          selectedColor={filterState.color}
+          onResetFilters={handleClearAll}
+        />
       </div>
     </div>
   );

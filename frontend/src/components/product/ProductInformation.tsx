@@ -144,3 +144,4 @@ export default function ProductInformation({ product }: ProductInformationProps)
     </div>
   );
 }
+

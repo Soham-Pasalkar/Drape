@@ -155,6 +155,7 @@ export default function ProductDetailPage() {
               images={product.images}
               productName={product.name}
               isTryOnCompatible={product.tryOn.available}
+              selectedColor={selectedColor}
             />
           </div>
 

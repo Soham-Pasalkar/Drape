@@ -7,6 +7,7 @@ import {
   ProductCategory,
   ProductColor,
 } from "@/features/catalog/types";
+import { isColorMatch } from "@/features/catalog/utils/product-mapping";
 
 interface CatalogFiltersProps {
   facets: CategoryFacet[];
@@ -164,8 +165,8 @@ export default function CatalogFilters({
               >
                 All
               </button>
-              {availableColors.slice(0, 6).map((c) => {
-                const isSelected = selectedColor.toLowerCase() === c.name.toLowerCase();
+              {availableColors.map((c) => {
+                const isSelected = selectedColor ? isColorMatch(c.name, selectedColor) : false;
                 return (
                   <button
                     key={c.name}
@@ -215,3 +216,4 @@ export default function CatalogFilters({
     </div>
   );
 }
+
