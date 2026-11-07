@@ -5,10 +5,10 @@
 | Mode | Manual AI-DLC (ai-dlc-engineering skill not installed), tier 2, brownfield |
 | Branch / commit | `ar-cleanup` @ `e1ea4b0` |
 | Rollback tags | `pre-cleanup-head` (736b542), `pre-cleanup-wt` (e2ffa3e) |
-| Current phase | Phase 1 — Inception (G3 milestone plan) |
-| Status | `AR_MILESTONES.md` drafted; **awaiting "approved G3"** |
-| Gates | G1 approved · G2 approved · G3 pending approval |
-| Milestone in progress | none |
+| Current phase | Phase 2 — Construction, M1 (session recording + replay) |
+| Status | M1 in progress |
+| Gates | G1 approved · G2 approved · G3 approved |
+| Milestone in progress | M1 |
 
 ## Approval log
 - 2026-11-07 — Phase 0 → Inception. User: "go". Interpreted as accepting the recommended defaults for
@@ -26,6 +26,10 @@
   (4) ignore hotkeys 1-8 when focus is in an input; (5) the recording instructions say `git checkout ar-cleanup` and
   restart `npm run dev`, not `git pull`. Keep G3 under 2 pages." Applied: 1, 2, 4 in AR_ARCHITECTURE.md; 3, 5 in
   AR_MILESTONES.md (M1 acceptance + protocol); ADR-008 status → Accepted.
+- 2026-11-07 — G3. User: "approved G3" with amendments: "(1) T2-T4 refactors must be proven behaviour-identical
+  with a golden test … assert identical pose, anchor and registration numbers (< 1e-6) before the refactor is accepted;
+  (2) the Safari and Chrome sessions recorded on the unmodified M1 build are the BASELINE: store them in
+  docs/aidlc/sessions/ …". Applied: T1b + T4b; baseline path `docs/aidlc/sessions/baseline/`. "Start M1 now … Do not start M2."
 
 ## Notes (out of scope for the current phase)
 - ADR-004 (pose in a Web Worker) diverges from the code; deferred to after M3 (decision 4) — needs an ADR amendment at G2.

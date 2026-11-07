@@ -1,6 +1,6 @@
 # DRAPE AR Try-On — Milestone Plan (gate G3)
 
-Status: **DRAFT — awaiting G3 approval**. Order per G1/G2 amendments: **M1 first**. One milestone in progress at a
+Status: **APPROVED at G3** (2026-11-07, "approved G3" + amendments 1–2 applied). Order per G1/G2 amendments: **M1 first**. One milestone in progress at a
 time; each ends at a tag (`ar-m<N>`) and a gate where the user approves the next one. Every milestone keeps
 `tsc`, `lint`, `test:ar` green per commit and `build` green at its end.
 
@@ -8,11 +8,13 @@ time; each ends at a tag (`ar-m<N>`) and a gate where the user approves the next
 | Task | Content |
 |---|---|
 | T1 | `camera.ts`: report `getSettings()` subset + mirror `{value, source}` (A6). |
+| T1b | **Golden infrastructure (G3 amendment 1):** deterministic landmark fixture (8 positions incl. waist crop), a Node harness that runs the *real* `ThreeSceneManager` with stubbed DOM/WebGL, and a golden generator. Commit, tag `m1-pre-refactor`, generate `golden-pre-refactor.json` from that tag. |
 | T2 | Extract `pipeline/pose-smoother.ts` from `three-scene.setPose`; scene delegates (behaviour-identical, unit test). |
 | T3 | Extract `debug/registration.ts` (pure metrics) from the component. |
 | T4 | Extract `pipeline/frame-step.ts` (smoother → fitting → pose smoother → registration); live loop calls it. |
 | T5 | `session/schema.ts` (v1, incl. render geometry: canvas client/buffer size, drawing buffer, renderer pixelRatio, DPR, wrapper computed transform, video object-fit/position) + validator. |
 | T6 | `session/recorder.ts` + HUD: ● Record / ■ Stop & save, timer, snapshot checkbox (off), hotkeys 1–8 ignored in inputs, auto-stop 120 s; composite snapshots captured right after `renderer.render()`. |
+| T4b | **Golden test:** the post-refactor path reproduces `golden-pre-refactor.json` (pose, smoothed root, garment anchor, registration) with max |Δ| < 1e-6. T2–T4 are not accepted until it passes. |
 | T7 | `scripts/replay-session.cjs` + `test-ar-replay.cjs`: per-position report, `|replay − recorded| ≤ 1 px`. |
 | T8 | Privacy check: CDP network log during a headless recording. |
 
@@ -20,6 +22,8 @@ time; each ends at a tag (`ar-m<N>`) and a gate where the user approves the next
 file that passes the validator — command output; (b) replay of that file reproduces recorded registration within
 1 px — test output; (c) no request carries frame/landmark data during recording — network log summary; (d) tsc,
 lint, test:ar, build green — outputs; (e) user receives the recording instructions below.
+**Baseline (G3 amendment 2):** the user's Safari and Chrome sessions recorded on the tagged M1 build are stored in
+`docs/aidlc/sessions/baseline/` (unmodified) and are the reference for M2 acceptance.
 **After the user's Safari + Chrome sessions arrive (closes M1):** I state explicitly, with the replay table, whether
 replay **reproduces the symptom** (garment offset or low when moving / cropped at the waist).
 - If **yes**: the cause is in the pose/fitting maths → M2 targets it with replay as the test.
