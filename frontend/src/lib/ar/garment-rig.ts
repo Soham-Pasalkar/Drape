@@ -106,14 +106,39 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
     anchor = left.clone().add(right).multiplyScalar(0.5);
     features = [left.clone(), right.clone()];
 
-    // Front collar neckline reference from geometry: front-center dip of collar opening
-    const collarFront = main.filter((v) => Math.abs(v.x) < 0.03 && v.z > 0 && v.y >= maxY - 0.35 * (maxY - minY));
-    if (collarFront.length > 0) {
-      let lowestFront = collarFront[0];
-      for (const v of collarFront) {
-        if (v.y < lowestFront.y) lowestFront = v;
+    // Front collar neckline reference from geometry: front-center dip of collar opening.
+    // In DRAPE assets, the collar rim opening has UV v ≈ 0, z > 0, |x| < 0.04 m.
+    const foundNeckline: THREE.Vector3[] = [];
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || m.name.includes('sleeve') || m.name.includes('cuff')) return;
+      const posAttr = m.geometry.getAttribute('position');
+      const uvAttr = m.geometry.getAttribute('uv');
+      if (!posAttr) return;
+      const mat = m.matrixWorld;
+      for (let i = 0; i < posAttr.count; i++) {
+        const x = posAttr.getX(i);
+        const y = posAttr.getY(i);
+        const z = posAttr.getZ(i);
+        const v = uvAttr ? uvAttr.getY(i) : 0;
+        if (uvAttr && v < 0.02 && z > 0 && Math.abs(x) < 0.04) {
+          const pt = new THREE.Vector3(x, y, z).applyMatrix4(mat);
+          if (!foundNeckline[0] || pt.y < foundNeckline[0].y) foundNeckline[0] = pt;
+        }
       }
-      neckline = lowestFront.clone();
+    });
+    if (foundNeckline.length > 0) {
+      neckline = foundNeckline[0].clone();
+    } else {
+      // Fallback if UVs not present: top 15% of garment height, front-center
+      const collarFront = main.filter((v) => Math.abs(v.x) < 0.03 && v.z > 0 && v.y >= maxY - 0.15 * (maxY - minY));
+      if (collarFront.length > 0) {
+        let lowest = collarFront[0];
+        for (const v of collarFront) {
+          if (v.y < lowest.y) lowest = v;
+        }
+        neckline = lowest.clone();
+      }
     }
   } else {
     // Top opening of the whole garment (waistband / neckline ring).
@@ -317,19 +342,33 @@ export function clampAbduction(dir: THREE.Vector3, side: 'left' | 'right', minAb
 export class SleeveRig {
   readonly sleeves: SleeveDescriptor[];
   private smoothed: Map<SleeveDescriptor, THREE.Vector3> = new Map();
-  /** Exponential smoothing time constant for the sleeve direction (s). */
-  tauS = 0.08;
+  private lastTarget: Map<SleeveDescriptor, THREE.Vector3> = new Map();
+  private untrackedS: Map<SleeveDescriptor, number> = new Map();
+  /**
+   * Exponential smoothing time constant for sleeve direction (s).
+   * Default 0.03 s (30 ms) delivers ~90 ms 95% convergence time under arm movement
+   * (vs 240 ms with previous 80 ms tau), eliminating perceived articulation lag.
+   */
+  tauS = 0.03;
+  /** Hold duration during brief occlusion / tracking drop before easing to rest. */
+  static readonly HOLD_TIMEOUT_S = 0.12;
 
   private readonly _target = new THREE.Vector3();
   private readonly _swing = new THREE.Quaternion();
 
-  constructor(sleeves: SleeveDescriptor[]) {
+  constructor(sleeves: SleeveDescriptor[], tauS = 0.03) {
     this.sleeves = sleeves;
-    for (const s of sleeves) this.smoothed.set(s, s.restAxisParent.clone());
+    this.tauS = tauS;
+    for (const s of sleeves) {
+      this.smoothed.set(s, s.restAxisParent.clone());
+      this.lastTarget.set(s, s.restAxisParent.clone());
+      this.untrackedS.set(s, 999);
+    }
   }
 
   static fromGarment(root: THREE.Object3D, metadata: GarmentMetadata, rest: Map<THREE.Object3D, RestTransform>): SleeveRig {
     if (!metadata.construction || metadata.construction.sleeves === 'none') return new SleeveRig([]);
+    const tau = metadata.fittingProfile?.sleeveSmoothingTauS ?? 0.03;
     const sleeves: SleeveDescriptor[] = [];
     root.updateMatrixWorld(true);
     const rootInv = new THREE.Matrix4().copy(root.matrixWorld).invert();
@@ -345,7 +384,7 @@ export class SleeveRig {
       parentRel.decompose(new THREE.Vector3(), q, new THREE.Vector3());
       sleeves.push(describeSleeve(m, side, r, q));
     });
-    return new SleeveRig(sleeves);
+    return new SleeveRig(sleeves, tau);
   }
 
   /**
@@ -356,11 +395,21 @@ export class SleeveRig {
     const alpha = 1 - Math.exp(-Math.max(0, dt) / this.tauS);
     for (const s of this.sleeves) {
       const obs = s.side === 'left' ? armDirGarment.left : armDirGarment.right;
-      if (obs) {
+      if (obs && Number.isFinite(obs.x) && Number.isFinite(obs.y) && Number.isFinite(obs.z)) {
+        this.untrackedS.set(s, 0);
         this._target.copy(obs).applyQuaternion(s.rootToParent);
         clampAbduction(this._target, s.side, s.minAbductionRad, this._target);
+        this.lastTarget.get(s)!.copy(this._target);
       } else {
-        this._target.copy(s.restAxisParent);
+        const elapsed = (this.untrackedS.get(s) ?? 0) + Math.max(0, dt);
+        this.untrackedS.set(s, elapsed);
+        if (elapsed < SleeveRig.HOLD_TIMEOUT_S) {
+          // Briefly preserve the last reliable direction to prevent twitching during brief occlusion
+          this._target.copy(this.lastTarget.get(s)!);
+        } else {
+          // Transition smoothly toward rest pose
+          this._target.copy(s.restAxisParent);
+        }
       }
       const cur = this.smoothed.get(s)!;
       cur.lerp(this._target, alpha).normalize();
@@ -381,6 +430,8 @@ export class SleeveRig {
       s.node.quaternion.copy(s.rest.quaternion);
       s.node.scale.copy(s.rest.scale);
       this.smoothed.get(s)!.copy(s.restAxisParent);
+      this.lastTarget.get(s)!.copy(s.restAxisParent);
+      this.untrackedS.set(s, 999);
     }
   }
 

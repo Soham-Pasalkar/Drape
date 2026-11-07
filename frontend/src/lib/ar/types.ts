@@ -234,6 +234,8 @@ export interface FittingProfile {
   zOffset: number;
   /** Calibrated vertical correction for neckline/collar alignment (metres, positive = upward). */
   necklineOffsetY?: number;
+  /** Sleeve articulation exponential smoothing time constant in seconds (e.g. 0.03 = 30 ms). */
+  sleeveSmoothingTauS?: number;
 }
 
 /**

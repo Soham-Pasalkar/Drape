@@ -53,6 +53,13 @@ export interface BodyShape {
  */
 export const BODY_PROXY_PRIORS = {
   NECK_ABOVE_SHOULDER_M: 0.12,
+  /**
+   * Approximate vertical distance from shoulder joint line to the suprasternal notch (base of neck).
+   * In standard human proportions, the clavicles drop ~4.5 cm from the acromion / glenohumeral joint
+   * to the jugular notch of the manubrium sterni on the anterior midline.
+   * This is a documented geometric reference for neckline fit telemetry, NOT an anatomically measured landmark.
+   */
+  NECK_BASE_BELOW_SHOULDER_M: 0.045,
   NECK_RADIUS_M: { a: 0.065, b: 0.06 },
   SHOULDER_SOFT_TISSUE_M: 0.05,
   SHOULDER_DEPTH_RATIO: 0.48,
@@ -201,16 +208,38 @@ export class MHRBodyProxy {
     return this.shapeVersion;
   }
 
-  /** Body-local semantic attachment anchors. */
-  getAttachmentAnchor(type: 'shoulder_center' | 'waist_center' | 'neckline_center', out = new THREE.Vector3()): THREE.Vector3 {
+  /**
+   * Body-local semantic attachment anchors.
+   *
+   * Anchors:
+   *   - 'shoulder_center': Shoulder joint midpoint (sections[1].y).
+   *   - 'neckline_center': Top of neck section near jaw/chin (sections[0].y).
+   *   - 'base_of_neck': Approximated suprasternal notch / base-of-neck reference on anterior midline.
+   *   - 'waist_center': Mid-torso waist section (sections[3].y).
+   */
+  getAttachmentAnchor(
+    type: 'shoulder_center' | 'waist_center' | 'neckline_center' | 'base_of_neck',
+    out = new THREE.Vector3()
+  ): THREE.Vector3 {
     switch (type) {
       case 'shoulder_center':
         return out.set(0, this.sections[1].y, 0);
       case 'neckline_center':
         return out.set(0, this.sections[0].y, 0);
+      case 'base_of_neck': {
+        const yS = this.shape.torsoLengthM / 2;
+        const yBase = yS - BODY_PROXY_PRIORS.NECK_BASE_BELOW_SHOULDER_M;
+        const zFront = this.sections[1].semiMinorB;
+        return out.set(0, yBase, zFront);
+      }
       case 'waist_center':
         return out.set(0, this.sections[3].y, 0);
     }
+  }
+
+  /** Returns the anatomical approximation of the suprasternal notch (base of neck). */
+  getBaseOfNeck(out = new THREE.Vector3()): THREE.Vector3 {
+    return this.getAttachmentAnchor('base_of_neck', out);
   }
 
   getJointPosition(name: 'left_shoulder' | 'right_shoulder' | 'left_hip' | 'right_hip', out = new THREE.Vector3()): THREE.Vector3 {

@@ -141,10 +141,16 @@ export interface GarmentDiagnostics {
   meshes: { name: string; role: MeshRole; vertices: number }[];
   neckline?: {
     garmentNecklineLocal: [number, number, number];
+    garmentNecklineBodyLocal: [number, number, number];
     bodyNeckLocal: [number, number, number];
+    bodyBaseOfNeckLocal: [number, number, number];
     necklineDispMm?: number;
+    /** Signed vertical delta in mm (positive = garment neckline above body base-of-neck, negative = below). */
+    necklineVerticalDeltaMm: number;
     projectedDisplacementPx?: number;
     appliedOffsetY: number;
+    effectiveWorldOffsetMm: number;
+    garmentId: string;
   };
 }
 
@@ -772,15 +778,26 @@ export class GarmentInstance {
     const t3 = (v: THREE.Vector3): [number, number, number] => [v.x, v.y, v.z];
 
     const bodyNeckAnchor = proxy.getAttachmentAnchor('neckline_center');
+    const bodyBaseOfNeck = proxy.getAttachmentAnchor('base_of_neck');
     let projectedDisplacementPx: number | undefined;
     let necklineDispMm: number | undefined;
+    let necklineVerticalDeltaMm: number | undefined;
+    let garmentNecklineBodyLocal: [number, number, number] | undefined;
+    const appliedOffsetY = this.metadata.fittingProfile?.necklineOffsetY ?? 0;
+    const effectiveWorldOffsetMm = appliedOffsetY * this.currentScale.y * 1000;
+
     if (this.neckline) {
       const worldGNeck = this.anchorGroup.localToWorld(this.neckline.clone());
-      const worldBNeck = bodyRoot.localToWorld(bodyNeckAnchor.clone());
-      necklineDispMm = worldGNeck.distanceTo(worldBNeck) * 1000;
+      const bodyGNeck = bodyRoot.worldToLocal(worldGNeck.clone());
+      garmentNecklineBodyLocal = t3(bodyGNeck);
+      // Signed vertical delta: positive = garment neckline sits above body base-of-neck reference; negative = below.
+      necklineVerticalDeltaMm = (bodyGNeck.y - bodyBaseOfNeck.y) * 1000;
+
+      const worldBBase = bodyRoot.localToWorld(bodyBaseOfNeck.clone());
+      necklineDispMm = worldGNeck.distanceTo(worldBBase) * 1000;
       if (camera) {
         const vG = worldGNeck.project(camera);
-        const vB = worldBNeck.project(camera);
+        const vB = worldBBase.project(camera);
         const h = 720;
         const dxPx = ((vG.x - vB.x) / 2) * (h * camera.aspect);
         const dyPx = ((vG.y - vB.y) / 2) * h;
@@ -833,10 +850,15 @@ export class GarmentInstance {
       neckline: this.neckline
         ? {
             garmentNecklineLocal: t3(this.neckline),
+            garmentNecklineBodyLocal: garmentNecklineBodyLocal ?? t3(this.neckline),
             bodyNeckLocal: t3(bodyNeckAnchor),
+            bodyBaseOfNeckLocal: t3(bodyBaseOfNeck),
             necklineDispMm,
+            necklineVerticalDeltaMm: necklineVerticalDeltaMm ?? 0,
             projectedDisplacementPx,
-            appliedOffsetY: this.metadata.fittingProfile?.necklineOffsetY ?? 0,
+            appliedOffsetY,
+            effectiveWorldOffsetMm,
+            garmentId: this.metadata.id,
           }
         : undefined,
     };

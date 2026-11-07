@@ -509,17 +509,20 @@ export default function DeveloperDiagnosticOverlay({
               <Row k="Align error" v={`${f(m.garment.anchorAlignmentErrorM * 1000, 3)} mm`} warn={m.garment.anchorAlignmentErrorM > 1e-3} />
               {m.garment.neckline && (
                 <>
-                  <Row k="Neckline (G)" v={v3(m.garment.neckline.garmentNecklineLocal)} />
-                  <Row k="Neckline (B)" v={v3(m.garment.neckline.bodyNeckLocal)} />
+                  <Row k="Neckline (G)" v={v3(m.garment.neckline.garmentNecklineBodyLocal ?? m.garment.neckline.garmentNecklineLocal)} />
+                  <Row k="Neck base (B)" v={v3(m.garment.neckline.bodyBaseOfNeckLocal ?? m.garment.neckline.bodyNeckLocal)} />
                   <Row
-                    k="Neck disp"
+                    k="Neckline Δ"
                     v={
-                      m.garment.neckline.projectedDisplacementPx !== undefined
-                        ? `${f(m.garment.neckline.projectedDisplacementPx, 1)} px`
+                      m.garment.neckline.necklineVerticalDeltaMm !== undefined
+                        ? `${m.garment.neckline.necklineVerticalDeltaMm >= 0 ? "+" : ""}${f(m.garment.neckline.necklineVerticalDeltaMm, 1)} mm`
                         : `${f(m.garment.neckline.necklineDispMm ?? 0, 1)} mm`
                     }
                   />
-                  <Row k="Neck offset" v={`${f(m.garment.neckline.appliedOffsetY * 1000, 1)} mm`} />
+                  <Row
+                    k="Neck offset"
+                    v={`${f(m.garment.neckline.appliedOffsetY * 1000, 1)} mm (eff ${f(m.garment.neckline.effectiveWorldOffsetMm ?? m.garment.neckline.appliedOffsetY * 1000, 1)} mm)`}
+                  />
                 </>
               )}
               <Row k="World pos" v={v3(m.garment.worldPosition)} />

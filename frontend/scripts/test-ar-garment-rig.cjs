@@ -91,12 +91,86 @@ test('GarmentInstance exposes calibrated neckline diagnostics and applied offset
   root.add(proxy.group);
   inst.attach(root);
 
+  inst.update({
+    bodyProxy: proxy,
+    bodyRoot: root,
+    dt: 1 / 60,
+    nowMs: 1000,
+    armDirsBody: { left: null, right: null },
+    targetScale: new THREE.Vector3(1, 1, 1),
+    tracking: true,
+    frameAccelWorld: new THREE.Vector3(),
+  });
+
   const diag = inst.diagnostics(proxy, root, true);
   assert(diag.neckline !== undefined, 'garment diagnostics must include neckline block');
-  near(diag.neckline.appliedOffsetY, 0.008, 1e-6, 'applied offset matches fittingProfile');
-  assert(Number.isFinite(diag.neckline.garmentNecklineLocal[1]), 'garment neckline Y is finite');
-  assert(Number.isFinite(diag.neckline.bodyNeckLocal[1]), 'body neck Y is finite');
-  assert(diag.neckline.necklineDispMm !== undefined && diag.neckline.necklineDispMm > 0, 'neckline displacement is measured in mm');
+  near(diag.neckline.appliedOffsetY, 0.013, 1e-6, 'applied offset matches fittingProfile (0.013 m = +13 mm)');
+  near(diag.neckline.effectiveWorldOffsetMm, diag.neckline.appliedOffsetY * diag.scale[1] * 1000, 1e-4, 'effective world offset accounts for wrapper scale');
+  assert(diag.neckline.garmentId === 'tshirt-crewneck', 'diag includes garmentId');
+  assert(diag.neckline.garmentNecklineBodyLocal !== undefined, 'includes body-local garment neckline');
+  assert(diag.neckline.bodyBaseOfNeckLocal !== undefined, 'includes body-local base of neck reference');
+  assert(Number.isFinite(diag.neckline.necklineVerticalDeltaMm), 'includes signed vertical delta in mm');
+});
+
+test('base-of-neck diagnostic reference and signed displacement convention', () => {
+  const proxy = new MHRBodyProxy();
+  const baseOfNeck = proxy.getAttachmentAnchor('base_of_neck');
+  const topOfNeck = proxy.getAttachmentAnchor('neckline_center');
+  const shoulder = proxy.getAttachmentAnchor('shoulder_center');
+
+  // Base of neck sits below shoulder line by ~4.5 cm
+  near(shoulder.y - baseOfNeck.y, 0.045, 1e-6, 'base of neck is 4.5 cm below shoulder line');
+  assert(topOfNeck.y > shoulder.y, 'top of neck sits above shoulder line');
+
+  // Verify signed convention:
+  // positive = garment collar is above base of neck
+  // negative = garment collar is below base of neck
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const sim = JSON.parse(fs.readFileSync(path.join(GDIR, meta.id, 'simulation-data.json'), 'utf8'));
+  const inst = new GarmentInstance(scene, meta, sim);
+  const root = new THREE.Group();
+  root.add(proxy.group);
+  inst.attach(root);
+
+  inst.update({
+    bodyProxy: proxy,
+    bodyRoot: root,
+    dt: 1 / 60,
+    nowMs: 1000,
+    armDirsBody: { left: null, right: null },
+    targetScale: new THREE.Vector3(1, 1, 1),
+    tracking: true,
+    frameAccelWorld: new THREE.Vector3(),
+  });
+
+  const diag = inst.diagnostics(proxy, root, true);
+  // With 13 mm offset, the collar sits ~2 mm below the suprasternal notch: signed delta is ~ -2 mm
+  assert(diag.neckline.necklineVerticalDeltaMm > -10 && diag.neckline.necklineVerticalDeltaMm < 10,
+    `necklineVerticalDeltaMm within natural collar band (-10 to +10 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
+});
+
+test('collar normal recalculation and simulation rest consistency', () => {
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const sim = JSON.parse(fs.readFileSync(path.join(GDIR, meta.id, 'simulation-data.json'), 'utf8'));
+  const inst = new GarmentInstance(scene, meta, sim);
+
+  // Check torso mesh normals are unit length and finite
+  const torsoMesh = inst.meshes.find((m) => m.mesh.name === 'torso');
+  assert(torsoMesh !== undefined, 'torso mesh must exist');
+  const norm = torsoMesh.mesh.geometry.getAttribute('normal');
+  for (let i = 0; i < norm.count; i++) {
+    const l = Math.hypot(norm.getX(i), norm.getY(i), norm.getZ(i));
+    assert(Math.abs(l - 1) < 1e-3, `normal ${i} must be unit length (got ${l})`);
+  }
+
+  // Verify sim rest matches render geometry (zero pre-strain)
+  if (inst.sim) {
+    const skin = inst.sim.solver.getSkinPositions();
+    const render = torsoMesh.mesh.geometry.getAttribute('position').array;
+    near(skin[1], render[1], 1e-4, 'sim rest Y matches modified collar render geometry');
+  }
 });
 
 suite('Shoulder anchor preservation');
@@ -255,6 +329,101 @@ test('abduction clamping prevents sleeve from penetrating the torso', () => {
   const clamped = clampAbduction(new THREE.Vector3(0.01, -0.99, 0).normalize(), 'left', 0.35);
   const psi = Math.atan2(clamped.x, -clamped.y);
   assert(psi >= 0.349, `abduction clamped to >= minAbduction (got ${psi})`);
+});
+
+suite('Responsive sleeve articulation (Milestone 0.7)');
+
+test('sleeve smoothing time constant configured to responsive 30 ms (25-35 ms range)', () => {
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const rest = captureRestTransforms(scene);
+  const rig = SleeveRig.fromGarment(scene, meta, rest);
+
+  assert(rig.tauS >= 0.025 && rig.tauS <= 0.035, `tauS must be within 25-35 ms range (got ${(rig.tauS * 1000).toFixed(1)} ms)`);
+  near(rig.tauS, 0.03, 1e-4, 'default tauS is 0.03 s (30 ms)');
+});
+
+test('30 ms smoothing converges significantly faster than previous 80 ms baseline', () => {
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene: sceneFast } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const { scene: sceneSlow } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const restFast = captureRestTransforms(sceneFast);
+  const restSlow = captureRestTransforms(sceneSlow);
+
+  const rigFast = SleeveRig.fromGarment(sceneFast, meta, restFast); // tau = 0.03 s
+  const rigSlow = SleeveRig.fromGarment(sceneSlow, meta, restSlow);
+  rigSlow.tauS = 0.08; // previous baseline
+
+  const targetDir = new THREE.Vector3(0.6, 0.8, 0).normalize();
+  const dt = 1 / 60; // 16.7 ms per frame
+
+  // After 4 frames (67 ms):
+  for (let f = 0; f < 4; f++) {
+    rigFast.update({ left: targetDir, right: null }, dt);
+    rigSlow.update({ left: targetDir, right: null }, dt);
+  }
+
+  const sFast = rigFast.sleeves.find((s) => s.side === 'left');
+  const sSlow = rigSlow.sleeves.find((s) => s.side === 'left');
+
+  const fastAxis = rigFast.currentAxis('left');
+  const slowAxis = rigSlow.currentAxis('left');
+
+  const fastAngle = fastAxis.angleTo(sFast.restAxisParent);
+  const slowAngle = slowAxis.angleTo(sSlow.restAxisParent);
+
+  // Fast rig has articulated through a much larger arc in the same 67 ms
+  assert(fastAngle > slowAngle * 1.5, `fast angle (${(fastAngle * 180 / Math.PI).toFixed(1)}°) must exceed slow (${(slowAngle * 180 / Math.PI).toFixed(1)}°) by > 1.5x`);
+});
+
+test('brief tracking occlusion holds last valid direction without twitching', () => {
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const rest = captureRestTransforms(scene);
+  const rig = SleeveRig.fromGarment(scene, meta, rest);
+
+  const up = new THREE.Vector3(0.5, 0.8, 0).normalize();
+  // Track for 30 frames
+  for (let i = 0; i < 30; i++) {
+    rig.update({ left: up, right: null }, 1 / 60);
+  }
+  const s = rig.sleeves.find((x) => x.side === 'left');
+  const qTracked = s.node.quaternion.clone();
+
+  // Drop tracking for 3 frames (50 ms < 120 ms hold timeout)
+  for (let i = 0; i < 3; i++) {
+    rig.update({ left: null, right: null }, 1 / 60);
+  }
+
+  // Quaternion must not have dropped toward rest
+  const dot = Math.abs(s.node.quaternion.dot(qTracked));
+  near(dot, 1, 1e-4, 'sleeve direction held steady during brief 50 ms occlusion');
+
+  // Continue dropping for > 150 ms (total > 200 ms)
+  for (let i = 0; i < 40; i++) {
+    rig.update({ left: null, right: null }, 1 / 60);
+  }
+  const dotRest = Math.abs(s.node.quaternion.dot(s.rest.quaternion));
+  near(dotRest, 1, 1e-2, 'sleeve smoothly eases to rest after occlusion hold expires');
+});
+
+test('rapid arm movement produces finite values with zero NaN or quaternion flips', () => {
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  const rest = captureRestTransforms(scene);
+  const rig = SleeveRig.fromGarment(scene, meta, rest);
+
+  for (let i = 0; i < 100; i++) {
+    const dirL = new THREE.Vector3(Math.sin(i * 0.5), Math.cos(i * 0.3), Math.sin(i * 0.2)).normalize();
+    const dirR = new THREE.Vector3(-Math.sin(i * 0.4), Math.cos(i * 0.5), -Math.cos(i * 0.2)).normalize();
+    rig.update({ left: dirL, right: dirR }, 1 / 60);
+
+    for (const s of rig.sleeves) {
+      assert(Number.isFinite(s.node.position.x), 'position finite');
+      assert(Number.isFinite(s.node.quaternion.w), 'quaternion finite');
+      assert(Number.isFinite(s.node.scale.x), 'scale finite');
+    }
+  }
 });
 
 finish('test-ar-garment-rig');

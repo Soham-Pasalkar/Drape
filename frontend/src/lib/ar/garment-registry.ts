@@ -26,7 +26,7 @@ export const GARMENTS: GarmentMetadata[] = [
       scaleMultipliers: { width: 1.05, height: 1.02, depth: 1.0 },
       yOffset: 0.0,
       zOffset: 0.0,
-      necklineOffsetY: 0.008,
+      necklineOffsetY: 0.013,
     },
     material: {
       color: '#1a1a1a',
@@ -79,7 +79,7 @@ export const GARMENTS: GarmentMetadata[] = [
       scaleMultipliers: { width: 1.20, height: 1.12, depth: 1.15 },
       yOffset: 0.0,
       zOffset: 0.0,
-      necklineOffsetY: 0.008,
+      necklineOffsetY: 0.013,
     },
     material: {
       color: '#e8e4df',
@@ -132,7 +132,7 @@ export const GARMENTS: GarmentMetadata[] = [
       scaleMultipliers: { width: 0.95, height: 0.96, depth: 0.9 },
       yOffset: 0.0,
       zOffset: 0.0,
-      necklineOffsetY: 0.008,
+      necklineOffsetY: 0.013,
     },
     material: {
       color: '#343330',
@@ -185,7 +185,7 @@ export const GARMENTS: GarmentMetadata[] = [
       scaleMultipliers: { width: 1.02, height: 1.0, depth: 0.98 },
       yOffset: 0.0,
       zOffset: 0.0,
-      necklineOffsetY: 0.008,
+      necklineOffsetY: 0.013,
     },
     material: {
       color: '#8c7b6c',
