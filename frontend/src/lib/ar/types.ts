@@ -234,6 +234,8 @@ export interface FittingProfile {
   zOffset: number;
   /** Calibrated vertical correction for neckline/collar alignment (metres, positive = upward). */
   necklineOffsetY?: number;
+  /** Lateral collar opening half-width in metres (e.g. 0.115 m) for smooth raised-cosine neckline shaping. */
+  collarHalfWidth?: number;
   /** Sleeve articulation exponential smoothing time constant in seconds (e.g. 0.03 = 30 ms). */
   sleeveSmoothingTauS?: number;
 }

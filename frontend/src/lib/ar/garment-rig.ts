@@ -44,6 +44,9 @@ export function composeGarmentRootMatrix(
 export interface SemanticAnchorResult {
   anchor: THREE.Vector3;
   neckline?: THREE.Vector3;
+  collarLeftEndpoint?: THREE.Vector3;
+  collarRightEndpoint?: THREE.Vector3;
+  collarCurveVertexCount?: number;
   source: 'geometry' | 'metadata';
   /** |geometry − metadata| in metres (NaN when geometry could not be evaluated). */
   metadataDeltaM: number;
@@ -107,8 +110,12 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
     features = [left.clone(), right.clone()];
 
     // Front collar neckline reference from geometry: front-center dip of collar opening.
-    // In DRAPE assets, the collar rim opening has UV v ≈ 0, z > 0, |x| < 0.04 m.
+    // In DRAPE assets, the collar rim opening has UV v ≈ 0, z > 0, |x| <= collarHalfWidth.
     const foundNeckline: THREE.Vector3[] = [];
+    let collarLeftEndpoint: THREE.Vector3 | undefined;
+    let collarRightEndpoint: THREE.Vector3 | undefined;
+    let collarCurveVertexCount = 0;
+    const maxCollarX = metadata.fittingProfile?.collarHalfWidth ?? 0.125;
     root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh || m.name.includes('sleeve') || m.name.includes('cuff')) return;
@@ -121,9 +128,14 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
         const y = posAttr.getY(i);
         const z = posAttr.getZ(i);
         const v = uvAttr ? uvAttr.getY(i) : 0;
-        if (uvAttr && v < 0.02 && z > 0 && Math.abs(x) < 0.04) {
+        if (uvAttr && v < 0.02 && z > 0 && Math.abs(x) <= maxCollarX) {
+          collarCurveVertexCount++;
           const pt = new THREE.Vector3(x, y, z).applyMatrix4(mat);
-          if (!foundNeckline[0] || pt.y < foundNeckline[0].y) foundNeckline[0] = pt;
+          if (Math.abs(x) < 0.04) {
+            if (!foundNeckline[0] || pt.y < foundNeckline[0].y) foundNeckline[0] = pt;
+          }
+          if (!collarLeftEndpoint || pt.x < collarLeftEndpoint.x) collarLeftEndpoint = pt.clone();
+          if (!collarRightEndpoint || pt.x > collarRightEndpoint.x) collarRightEndpoint = pt.clone();
         }
       }
     });
@@ -140,6 +152,16 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
         neckline = lowest.clone();
       }
     }
+    return {
+      anchor,
+      neckline,
+      collarLeftEndpoint,
+      collarRightEndpoint,
+      collarCurveVertexCount,
+      source: 'geometry',
+      metadataDeltaM: anchor.distanceTo(meta),
+      featurePoints: features,
+    };
   } else {
     // Top opening of the whole garment (waistband / neckline ring).
     const all = collectVertices(root);
@@ -148,22 +170,32 @@ export function computeSemanticAnchor(root: THREE.Object3D, metadata: GarmentMet
     const ring = all.filter((v) => v.y >= top - 0.005);
     anchor = ring.reduce((acc, v) => acc.add(v), new THREE.Vector3()).divideScalar(ring.length);
     features = ring.slice(0, 8);
+    return { anchor, neckline, source: 'geometry', metadataDeltaM: anchor.distanceTo(meta), featurePoints: features };
   }
-  return { anchor, neckline, source: 'geometry', metadataDeltaM: anchor.distanceTo(meta), featurePoints: features };
 }
 
 /**
  * Smoothly lifts the collar dip vertices of the torso mesh upward (+Y) by `offset` metres.
- * Applied in garment-local geometry space to collar vertices (|x| < 0.10 m, z > 0, v < 0.15).
- * Does not disturb the shoulder seams (|x| > 0.18 m) or any other garment anchor.
+ * Uses a C1-continuous raised-cosine window across X and V:
+ *  - Across X (|x| < collarHalfWidth): factorX = (1 + cos(pi * |x| / w)) / 2.
+ *    Horizontal tangent (df/dx = 0) at x = 0 produces a smooth, rounded crewneck curve
+ *    (preventing inverted V-shaped pointedness). Tangent is 0 at |x| = w (zero kink or boundary discontinuity).
+ *  - Across V (v < maxV = 0.14): factorV = (1 + cos(pi * v / maxV)) / 2.
+ *    Smoothly lifts the collar opening rim (v = 0), ribbing band (v = 0.05), and torso attachment seam (v = 0.10)
+ *    together, preserving ribbing width and transitioning seamlessly into the mid-chest panel (v = 0.15).
+ *  - Does not disturb lateral shoulder seams (|x| > w) or the semantic shoulder anchor a_G (zero drift).
  */
 export function applyNecklineOffset(
   root: THREE.Object3D,
   offset: number,
-  simulationMeshName?: string
+  simulationMeshName?: string,
+  collarHalfWidth?: number
 ): number {
   if (!offset || Math.abs(offset) < 1e-5) return 0;
   let modifiedCount = 0;
+  const w = collarHalfWidth ?? 0.115;
+  const maxV = 0.14;
+
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
@@ -172,15 +204,13 @@ export function applyNecklineOffset(
     const uv = m.geometry.getAttribute('uv');
     if (!pos || !uv) return;
 
-    const collarHalfWidth = 0.09;
-    const maxV = 0.08;
     for (let i = 0; i < pos.count; i++) {
       const v = uv.getY(i);
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      if (v < maxV && Math.abs(x) < collarHalfWidth && z > 0) {
-        const factorX = 1 - Math.abs(x) / collarHalfWidth;
-        const factorV = 1 - v / maxV;
+      if (v < maxV && Math.abs(x) < w && z > 0) {
+        const factorX = (1 + Math.cos((Math.PI * Math.abs(x)) / w)) / 2;
+        const factorV = (1 + Math.cos((Math.PI * v) / maxV)) / 2;
         pos.setY(i, pos.getY(i) + offset * factorX * factorV);
         modifiedCount++;
       }

@@ -104,12 +104,17 @@ test('GarmentInstance exposes calibrated neckline diagnostics and applied offset
 
   const diag = inst.diagnostics(proxy, root, true);
   assert(diag.neckline !== undefined, 'garment diagnostics must include neckline block');
-  near(diag.neckline.appliedOffsetY, 0.023, 1e-6, 'applied offset matches fittingProfile (0.023 m = +23 mm)');
+  near(diag.neckline.appliedOffsetY, 0.051, 1e-6, 'applied offset matches fittingProfile (0.051 m = +51 mm)');
   near(diag.neckline.effectiveWorldOffsetMm, diag.neckline.appliedOffsetY * diag.scale[1] * 1000, 1e-4, 'effective world offset accounts for wrapper scale');
   assert(diag.neckline.garmentId === 'tshirt-crewneck', 'diag includes garmentId');
   assert(diag.neckline.garmentNecklineBodyLocal !== undefined, 'includes body-local garment neckline');
   assert(diag.neckline.bodyBaseOfNeckLocal !== undefined, 'includes body-local base of neck reference');
   assert(Number.isFinite(diag.neckline.necklineVerticalDeltaMm), 'includes signed vertical delta in mm');
+  assert(Number.isFinite(diag.neckline.collarDropMm), 'includes collar drop in mm');
+  assert(diag.neckline.collarDropMm >= 25 && diag.neckline.collarDropMm <= 32,
+    `collar drop within natural crewneck range (25-32 mm), got ${diag.neckline.collarDropMm.toFixed(1)} mm`);
+  assert(diag.neckline.collarCurveVertexCount !== undefined && diag.neckline.collarCurveVertexCount > 0,
+    `collar curve vertex count recorded (got ${diag.neckline.collarCurveVertexCount})`);
 });
 
 test('base-of-neck diagnostic reference and signed displacement convention', () => {
@@ -145,9 +150,10 @@ test('base-of-neck diagnostic reference and signed displacement convention', () 
   });
 
   const diag = inst.diagnostics(proxy, root, true);
-  // With 23 mm offset, the collar sits ~8 mm above the suprasternal notch: signed delta is ~ +8 mm
-  assert(diag.neckline.necklineVerticalDeltaMm > 0 && diag.neckline.necklineVerticalDeltaMm < 20,
-    `necklineVerticalDeltaMm within natural collar band (+0 to +20 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
+  // With +51 mm offset, the collar sits ~37 mm above the suprasternal notch (at the natural base of the neck):
+  // signed delta is in the natural crewneck range (+25 to +45 mm)
+  assert(diag.neckline.necklineVerticalDeltaMm > 25 && diag.neckline.necklineVerticalDeltaMm < 45,
+    `necklineVerticalDeltaMm within natural collar band (+25 to +45 mm), got ${diag.neckline.necklineVerticalDeltaMm.toFixed(1)} mm`);
 });
 
 test('collar normal recalculation and simulation rest consistency', () => {
@@ -428,12 +434,18 @@ test('rapid arm movement produces finite values with zero NaN or quaternion flip
 
 suite('Stable sleeve-arm depth occlusion (Milestone 0.8)');
 
-test('crewneck upper-body garments have +23 mm neckline offset configured', () => {
-  const crewTops = ['tshirt-crewneck', 'tshirt-oversized', 'tshirt-fitted', 'top-longsleeve'];
-  for (const id of crewTops) {
+test('crewneck upper-body garments have definitive +48 to +51 mm neckline offset configured (Milestone 0.9)', () => {
+  const expected = {
+    'tshirt-crewneck': { offset: 0.051, halfWidth: 0.115 },
+    'tshirt-oversized': { offset: 0.048, halfWidth: 0.125 },
+    'tshirt-fitted': { offset: 0.048, halfWidth: 0.100 },
+    'top-longsleeve': { offset: 0.051, halfWidth: 0.115 },
+  };
+  for (const [id, exp] of Object.entries(expected)) {
     const meta = getGarmentById(id);
     assert(meta !== undefined, `${id} must exist in registry`);
-    near(meta.fittingProfile.necklineOffsetY, 0.023, 1e-6, `${id} necklineOffsetY must be 0.023 m (+23 mm)`);
+    near(meta.fittingProfile.necklineOffsetY, exp.offset, 1e-6, `${id} necklineOffsetY must be ${exp.offset} m (+${exp.offset * 1000} mm)`);
+    near(meta.fittingProfile.collarHalfWidth, exp.halfWidth, 1e-6, `${id} collarHalfWidth must be ${exp.halfWidth} m`);
   }
 });
 
@@ -565,6 +577,84 @@ test('body proxy debug wireframes display all active limbs even when limb occlus
   });
   assert(debugMesh !== undefined, 'debug mesh exists');
   assert(debugMesh.visible, 'debug wireframe remains visible for developer inspection');
+});
+
+suite('Definitive front neckline elevation and crewneck shape (Milestone 0.9)');
+
+test('applyNecklineOffset employs C1 raised-cosine window: zero V-notch and horizontal tangent at center', () => {
+  const meta = getGarmentById('tshirt-crewneck');
+  const { scene } = loadGLB(path.join(GDIR, meta.id, 'model.glb'));
+  let torso;
+  scene.traverse((o) => { if (o.isMesh && o.name === 'torso') torso = o; });
+  const pos = torso.geometry.getAttribute('position');
+
+  const beforeY = [];
+  for (let i = 0; i < pos.count; i++) beforeY.push(pos.getY(i));
+
+  const offset = 0.051;
+  const halfWidth = 0.115;
+  const lifted = applyNecklineOffset(scene, offset, 'torso', halfWidth);
+  assert(lifted > 0, `must lift collar vertices (lifted ${lifted})`);
+
+  // Vertex 0: front center collar (x = 0, y = 0.1972)
+  const dyCenter = pos.getY(0) - beforeY[0];
+  near(dyCenter, offset, 1e-4, 'center vertex receives full offset');
+
+  // Find immediate lateral neighbors on the front collar opening (|x| < 0.06 m, z > 0.06, rim v < 0.02)
+  // Under raised cosine, f(x) = (1 + cos(pi*x/w))/2.
+  // For small x, 1 - f(x) = O(x^2), meaning dy/dx = 0 at x = 0 (horizontal tangent, smooth curve, NO sharp V)
+  const uv = torso.geometry.getAttribute('uv');
+  let foundNeighbor = false;
+  for (let i = 1; i < pos.count; i++) {
+    const x = Math.abs(pos.getX(i));
+    const z = pos.getZ(i);
+    const v = uv ? uv.getY(i) : 0;
+    if (x > 0.01 && x < 0.06 && z > 0.06 && v < 0.02) {
+      const dyNeighbor = pos.getY(i) - beforeY[i];
+      const slope = Math.abs(dyCenter - dyNeighbor) / x;
+      assert(slope < 0.45, `collar curvature tangent is smooth and rounded near center (slope ${slope.toFixed(3)} < 0.45)`);
+      foundNeighbor = true;
+    }
+  }
+  assert(foundNeighbor, 'found front collar lateral neighbor');
+
+  // Shoulder seam vertices (|x| >= 0.15 m) experience strictly ZERO displacement
+  for (let i = 0; i < pos.count; i++) {
+    if (Math.abs(pos.getX(i)) >= 0.15) {
+      const dy = Math.abs(pos.getY(i) - beforeY[i]);
+      near(dy, 0, 1e-6, `shoulder/armhole vertex ${i} (|x|=${pos.getX(i).toFixed(3)}) unaffected`);
+    }
+  }
+});
+
+test('collar drop across all 4 crewneck garments is in natural 25-32 mm range', () => {
+  const crewTops = ['tshirt-crewneck', 'tshirt-oversized', 'tshirt-fitted', 'top-longsleeve'];
+  for (const id of crewTops) {
+    const meta = getGarmentById(id);
+    const { scene } = loadGLB(path.join(GDIR, id, 'model.glb'));
+    const sim = JSON.parse(fs.readFileSync(path.join(GDIR, id, 'simulation-data.json'), 'utf8'));
+    const inst = new GarmentInstance(scene, meta, sim);
+    const proxy = new MHRBodyProxy();
+    const root = new THREE.Group();
+    root.add(proxy.group);
+    inst.attach(root);
+
+    inst.update({
+      bodyProxy: proxy,
+      bodyRoot: root,
+      dt: 1 / 60,
+      nowMs: 1000,
+      armDirsBody: { left: null, right: null },
+      targetScale: new THREE.Vector3(1, 1, 1),
+      tracking: true,
+      frameAccelWorld: new THREE.Vector3(),
+    });
+
+    const diag = inst.diagnostics(proxy, root, true);
+    assert(diag.neckline !== undefined, `${id}: neckline diag must exist`);
+    assert(diag.neckline.collarDropMm >= 25 && diag.neckline.collarDropMm <= 32,
+      `${id}: collar drop (${diag.neckline.collarDropMm.toFixed(1)} mm) in natural 25-32 mm range`);
+  }
 });
 
 finish('test-ar-garment-rig');

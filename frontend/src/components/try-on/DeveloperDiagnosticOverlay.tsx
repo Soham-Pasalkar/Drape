@@ -523,6 +523,12 @@ export default function DeveloperDiagnosticOverlay({
                     k="Neck offset"
                     v={`${f(m.garment.neckline.appliedOffsetY * 1000, 1)} mm (eff ${f(m.garment.neckline.effectiveWorldOffsetMm ?? m.garment.neckline.appliedOffsetY * 1000, 1)} mm)`}
                   />
+                  {m.garment.neckline.collarDropMm !== undefined && (
+                    <Row
+                      k="Collar curve"
+                      v={`drop ${f(m.garment.neckline.collarDropMm, 1)} mm · ${m.garment.neckline.collarCurveVertexCount ?? 0} vtx`}
+                    />
+                  )}
                 </>
               )}
               <Row k="World pos" v={v3(m.garment.worldPosition)} />

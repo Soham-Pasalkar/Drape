@@ -144,6 +144,11 @@ export interface GarmentDiagnostics {
     garmentNecklineBodyLocal: [number, number, number];
     bodyNeckLocal: [number, number, number];
     bodyBaseOfNeckLocal: [number, number, number];
+    collarLeftEndpointLocal?: [number, number, number];
+    collarRightEndpointLocal?: [number, number, number];
+    collarCurveVertexCount?: number;
+    collarDropMm?: number;
+    suprasternalNotchReferenceBodyLocal?: [number, number, number];
     necklineDispMm?: number;
     /** Signed vertical delta in mm (positive = garment neckline above body base-of-neck, negative = below). */
     necklineVerticalDeltaMm: number;
@@ -187,6 +192,9 @@ export class GarmentInstance {
   readonly gltfRoot: THREE.Object3D;
   readonly anchor: SemanticAnchorResult;
   readonly neckline: THREE.Vector3;
+  readonly collarLeftEndpoint?: THREE.Vector3;
+  readonly collarRightEndpoint?: THREE.Vector3;
+  readonly collarCurveVertexCount?: number;
   readonly meshes: MeshRecord[] = [];
   readonly sleeveRig: SleeveRig;
   readonly bboxLocal: THREE.Box3;
@@ -238,10 +246,24 @@ export class GarmentInstance {
 
     // Neckline reference from geometry or anchor
     this.neckline = this.anchor.neckline ? this.anchor.neckline.clone() : this.anchor.anchor.clone();
+    this.collarLeftEndpoint = this.anchor.collarLeftEndpoint?.clone();
+    this.collarRightEndpoint = this.anchor.collarRightEndpoint?.clone();
+    this.collarCurveVertexCount = this.anchor.collarCurveVertexCount;
     if (metadata.fittingProfile?.necklineOffsetY) {
       const offset = metadata.fittingProfile.necklineOffsetY;
-      applyNecklineOffset(this.anchorGroup, offset, metadata.construction?.simulationMesh);
+      const collarWidth = metadata.fittingProfile.collarHalfWidth ?? 0.115;
+      applyNecklineOffset(this.anchorGroup, offset, metadata.construction?.simulationMesh, collarWidth);
       this.neckline.y += offset;
+      if (this.collarLeftEndpoint) {
+        const xRatio = Math.min(1, Math.abs(this.collarLeftEndpoint.x) / collarWidth);
+        const wX = 0.5 * (1 + Math.cos(Math.PI * xRatio));
+        this.collarLeftEndpoint.y += offset * wX;
+      }
+      if (this.collarRightEndpoint) {
+        const xRatio = Math.min(1, Math.abs(this.collarRightEndpoint.x) / collarWidth);
+        const wX = 0.5 * (1 + Math.cos(Math.PI * xRatio));
+        this.collarRightEndpoint.y += offset * wX;
+      }
     }
 
     // Capture rest transforms and initialize dynamic sleeve rig
@@ -853,6 +875,13 @@ export class GarmentInstance {
             garmentNecklineBodyLocal: garmentNecklineBodyLocal ?? t3(this.neckline),
             bodyNeckLocal: t3(bodyNeckAnchor),
             bodyBaseOfNeckLocal: t3(bodyBaseOfNeck),
+            suprasternalNotchReferenceBodyLocal: t3(bodyBaseOfNeck),
+            collarLeftEndpointLocal: this.collarLeftEndpoint ? t3(this.collarLeftEndpoint) : undefined,
+            collarRightEndpointLocal: this.collarRightEndpoint ? t3(this.collarRightEndpoint) : undefined,
+            collarCurveVertexCount: this.collarCurveVertexCount,
+            collarDropMm: this.collarLeftEndpoint && this.collarRightEndpoint
+              ? Math.max(0, (((this.collarLeftEndpoint.y + this.collarRightEndpoint.y) * 0.5) - this.neckline.y) * 1000)
+              : undefined,
             necklineDispMm,
             necklineVerticalDeltaMm: necklineVerticalDeltaMm ?? 0,
             projectedDisplacementPx,
