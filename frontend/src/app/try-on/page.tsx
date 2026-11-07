@@ -26,8 +26,14 @@ const VirtualTryOnExperience = dynamic(
 function TryOnContent() {
   const searchParams = useSearchParams();
   const initialGarmentId = searchParams.get("garment") || undefined;
+  const returnUrl = searchParams.get("from") || searchParams.get("returnTo") || undefined;
 
-  return <VirtualTryOnExperience initialGarmentId={initialGarmentId} />;
+  return (
+    <VirtualTryOnExperience
+      initialGarmentId={initialGarmentId}
+      returnUrl={returnUrl}
+    />
+  );
 }
 
 export default function TryOnPage() {

@@ -71,13 +71,17 @@ import { DiagnosticMetrics, DiagnosticLayers, DEFAULT_DIAGNOSTIC_LAYERS } from "
 
 interface VirtualTryOnExperienceProps {
   initialGarmentId?: string;
+  returnUrl?: string;
 }
 
 /** The <video> uses CSS object-fit: cover with centred object-position (see CameraViewport). */
 const VIDEO_OBJECT_FIT = "cover" as const;
 const UI_UPDATE_INTERVAL_MS = 100;
 
-export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryOnExperienceProps) {
+export default function VirtualTryOnExperience({
+  initialGarmentId,
+  returnUrl,
+}: VirtualTryOnExperienceProps) {
   const allGarments = getAllGarments();
   const initial = initialGarmentId ? getGarmentById(initialGarmentId) : null;
   const [selectedGarment, setSelectedGarment] = useState<GarmentMetadata>(initial || allGarments[0]);
@@ -900,10 +904,10 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
               <Info className="w-4 h-4" />
             </button>
             <Link
-              href="/collections"
+              href={returnUrl || "/collections"}
               className="text-[10px] font-mono uppercase tracking-widest px-3 py-1.5 border border-warm-ivory/20 hover:border-warm-ivory text-warm-ivory transition-colors"
             >
-              Back to Collections
+              {returnUrl ? "Back to Product" : "Back to Collections"}
             </Link>
           </div>
         </div>
