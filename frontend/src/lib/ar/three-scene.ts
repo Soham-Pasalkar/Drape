@@ -23,6 +23,7 @@ import { FabricMaterialFactory } from './fabric-materials';
 import { GarmentInstance, GarmentDebugFlags, GarmentDiagnostics, SimulationData } from './garment-instance';
 import { buildProjectionMatrix, VideoDisplayTransform, ndcToDisplay, Vec2 } from './coordinates';
 import { DetailedFittingResult } from './fitting-engine';
+import { PoseSmoother } from './pipeline/pose-smoother';
 import {
   DebugMaterialMode,
   OrientationProbe,
@@ -116,7 +117,7 @@ export class ThreeSceneManager {
 
   // Stage-1 diagnostics
   private renderFrame = 0;
-  private pendingSnap = false;
+  private poseSmoother = new PoseSmoother(POSE_TAU_S);
   private frameLog: FrameLog = {
     renderFrame: 0, dtMs: 0, lerpA: 0, snapped: false, targetPos: [0, 0, 0], bodyRootPos: [0, 0, 0],
     garmentParentedToBodyRoot: false, bodyRootVisible: false,
@@ -313,7 +314,7 @@ export class ThreeSceneManager {
     this.bodyProxy.updateLimbs(limbs);
 
     // Only REQUEST a snap; the transform itself is written exclusively by setPose().
-    if (!this.hasTarget || lostFor > SNAP_AFTER_LOSS_MS) this.pendingSnap = true;
+    if (!this.hasTarget || lostFor > SNAP_AFTER_LOSS_MS) this.poseSmoother.requestSnap();
     this.hasTarget = true;
   }
 
@@ -450,21 +451,13 @@ export class ThreeSceneManager {
    * Returns the factor applied (1 = snap).
    */
   private setPose(dt: number): number {
-    let a: number;
-    if (this.pendingSnap) {
-      a = 1;
-      this.bodyRoot.position.copy(this.targetPos);
-      this.bodyRoot.quaternion.copy(this.targetQuat);
+    const r = this.poseSmoother.step(this.bodyRoot, { position: this.targetPos, quaternion: this.targetQuat }, dt);
+    if (r.snapped) {
       this.prevPos = null;
-      this.pendingSnap = false;
       this.frameLog.snapped = true;
-    } else {
-      a = 1 - Math.exp(-dt / POSE_TAU_S);
-      this.bodyRoot.position.lerp(this.targetPos, a);
-      this.bodyRoot.quaternion.slerp(this.targetQuat, a);
     }
     this.bodyRoot.updateMatrixWorld(true);
-    return a;
+    return r.a;
   }
 
   /** Resets frame timing (call when the tab becomes visible again). */
