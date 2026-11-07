@@ -8,7 +8,7 @@ import type { RegistrationReadout } from './registration';
 
 const f = (v: number | null | undefined, d = 2) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : v.toFixed(d));
 
-export function formatDiagLine(t: number, diag: SessionFrameDiag, reg: RegistrationReadout | null, extra: { bustMode?: boolean; shoulderSpanPx?: number } = {}): string {
+export function formatDiagLine(t: number, diag: SessionFrameDiag, reg: RegistrationReadout | null, extra: { bustMode?: boolean; shoulderSpanPx?: number; displayScale?: number } = {}): string {
   const d = diag.distance;
   const e = reg?.errors ?? {};
   const kp = ['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].map((k) => (e[k] ? f(e[k]!.raw, 1) : '–')).join('/');
@@ -33,6 +33,8 @@ export function formatDiagLine(t: number, diag: SessionFrameDiag, reg: Registrat
     `kpErr=${kp}px`,
     `scale=${diag.garment ? diag.garment.wrapperScale.map((v) => f(v, 3)).join(',') : '—'}`,
     `torsoW=${torso ? f(torso.screen.w, 0) : '—'}px`,
+    `seamW=${diag.garment?.seam ? f(diag.garment.seam.widthPx, 0) : '—'}px`,
+    `seam/shoulder=${diag.garment?.seam && extra.shoulderSpanPx && extra.displayScale ? f(diag.garment.seam.widthPx / (extra.shoulderSpanPx * extra.displayScale), 3) : '—'}`,
     sleeves,
   ].join(' ');
 }

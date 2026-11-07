@@ -127,6 +127,11 @@ const CORRESPONDENCE_MAX_DISTANCE_M = 0.25;
 const REBUILD_MIN_INTERVAL_MS = 100;
 const DEFORM_SMOOTHING_ITERATIONS = 4;
 const SCALE_TAU_S = 0.3;
+/**
+ * Shoulder seam width relative to the MediaPipe shoulder-JOINT span (2026-11-07 fix, item 3). The seam sits on the
+ * acromion, ≈ 12 % lateral of the joint centres; the user's acceptance band is 1.05–1.20.
+ */
+export const SHOULDER_SEAM_TO_JOINT_SPAN = 1.12;
 
 function plainFloat32Attribute(geom: THREE.BufferGeometry, name: string): THREE.BufferAttribute | null {
   const attr = geom.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined;
@@ -153,6 +158,8 @@ export class GarmentInstance {
   readonly sleeveRig: SleeveRig;
   readonly bboxLocal: THREE.Box3;
   readonly sim: SimulationBinding | null = null;
+  /** Horizontal distance between the GLB's two shoulder seam points (garment-local m); null for waist anchors. */
+  readonly seamWidthM: number | null = null;
   readonly simDisabledReason: string | null = null;
 
   private bvh: { version: number; bvh: TriangleBVH } | null = null;
@@ -171,6 +178,7 @@ export class GarmentInstance {
   private readonly _accel = new THREE.Vector3();
   private readonly _armL = new THREE.Vector3();
   private readonly _armR = new THREE.Vector3();
+  private readonly _scaleTarget = new THREE.Vector3(1, 1, 1);
 
   private debugGroupGarment: THREE.Group | null = null;
   private debugGroupBody: THREE.Group | null = null;
@@ -191,6 +199,10 @@ export class GarmentInstance {
     // Semantic anchor from geometry, in anchorGroup-local (= garment-local) coordinates.
     this.anchor = computeSemanticAnchor(this.anchorGroup, metadata);
     this.anchorGroup.position.copy(this.anchor.anchor).negate();
+
+    if (metadata.modelAnchor.type === 'shoulder_center' && this.anchor.featurePoints.length >= 2) {
+      (this as { seamWidthM: number | null }).seamWidthM = Math.abs(this.anchor.featurePoints[0].x - this.anchor.featurePoints[1].x);
+    }
 
     const rest = captureRestTransforms(gltfRoot);
     this.sleeveRig = SleeveRig.fromGarment(this.anchorGroup, metadata, rest);
@@ -427,11 +439,15 @@ export class GarmentInstance {
     // 1. Anchor relationship: wrapper at the body attachment anchor, scaled about it.
     const bodyAnchor = p.bodyProxy.getAttachmentAnchor(this.metadata.modelAnchor.type);
     this.wrapper.position.copy(bodyAnchor);
+    // Uniform size from the body's shoulder breadth (tops / dresses); waist-anchored garments keep the scene's target.
+    const target = this.seamWidthM
+      ? this._scaleTarget.setScalar((SHOULDER_SEAM_TO_JOINT_SPAN * p.bodyProxy.getShape().shoulderBreadthM) / this.seamWidthM)
+      : this._scaleTarget.copy(p.targetScale);
     if (!this.scaleInitialized) {
-      this.currentScale.copy(p.targetScale);
+      this.currentScale.copy(target);
       this.scaleInitialized = true;
     } else {
-      this.currentScale.lerp(p.targetScale, 1 - Math.exp(-Math.max(0, p.dt) / SCALE_TAU_S));
+      this.currentScale.lerp(target, 1 - Math.exp(-Math.max(0, p.dt) / SCALE_TAU_S));
     }
     this.wrapper.scale.copy(this.currentScale);
     this.wrapper.updateWorldMatrix(true, true);

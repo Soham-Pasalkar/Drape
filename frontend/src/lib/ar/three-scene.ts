@@ -574,6 +574,7 @@ export class ThreeSceneManager {
     wrapperScale: [number, number, number];
     anchorWorld: [number, number, number];
     meshes: { name: string; role: string; sizeM: [number, number, number]; centreRelAnchorM: [number, number, number]; screen: { x: number; y: number; w: number; h: number } }[];
+    seam: { widthPx: number; left: { x: number; y: number }; right: { x: number; y: number } } | null;
   } | null {
     const inst = this.active;
     if (!inst) return null;
@@ -592,7 +593,16 @@ export class ThreeSceneManager {
       }
       return { name: m.mesh.name || '(unnamed)', role: m.role, sizeM: t3(size), centreRelAnchorM: t3(c), screen: { x: (minX + maxX) / 2, y: (minY + maxY) / 2, w: maxX - minX, h: maxY - minY } };
     });
-    return { wrapperScale: t3(inst.wrapper.scale), anchorWorld: t3(anchor), meshes };
+    // Projected shoulder seam (item 3 metric): the GLB's two seam points through the render camera.
+    let seam: { widthPx: number; left: { x: number; y: number }; right: { x: number; y: number } } | null = null;
+    if (inst.seamWidthM && inst.anchor.featurePoints.length >= 2) {
+      const [a, b] = inst.anchor.featurePoints.map((fp) => {
+        const p = inst.anchorGroup.localToWorld(fp.clone()).project(this.camera);
+        return ndcToDisplay({ x: p.x, y: p.y }, display);
+      });
+      seam = { widthPx: Math.hypot(a.x - b.x, a.y - b.y), left: a, right: b };
+    }
+    return { wrapperScale: t3(inst.wrapper.scale), anchorWorld: t3(anchor), meshes, seam };
   }
 
   /** Real rendering geometry for session recording (G2 amendment 1). */

@@ -266,8 +266,9 @@ export class FittingEngine {
     // 5. Ease (fit verdict + only fit-driven scaling).
     const ease = this.easeEngine.evaluateFit(garment, measurements);
     this.latestEase = ease;
-    const stretch = this.easeEngine.computeStretchScale(garment, measurements, ease);
-    const garmentScale: [number, number, number] = [stretch, 1, stretch];
+    // Uniform scale only (2026-11-07 fix, item 3): the garment instance sizes tops from the shoulder breadth;
+    // no non-uniform ease stretch.
+    const garmentScale: [number, number, number] = [1, 1, 1];
 
     // 6. PnP: body-local model points from the same body shape the scene uses.
     const model = (name: 'left_shoulder' | 'right_shoulder' | 'left_hip' | 'right_hip') => {

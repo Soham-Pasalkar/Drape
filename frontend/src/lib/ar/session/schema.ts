@@ -82,6 +82,8 @@ export interface SessionFrameDiag {
     wrapperScale: Vec3T;
     anchorWorld: Vec3T;
     meshes: { name: string; role: string; sizeM: Vec3T; centreRelAnchorM: Vec3T; screen: { x: number; y: number; w: number; h: number } }[];
+    /** Projected GLB shoulder seam (container px) — item 3 metric. */
+    seam?: { widthPx: number; left: { x: number; y: number }; right: { x: number; y: number } } | null;
   } | null;
 }
 
