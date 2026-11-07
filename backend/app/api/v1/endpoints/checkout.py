@@ -12,7 +12,7 @@ from decimal import Decimal
 import hmac
 import secrets
 from typing import List, Optional
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -22,7 +22,7 @@ from app.api.deps import (
     get_identity_adapter,
     get_tax_calculator,
 )
-from app.api.v1.endpoints.cart import get_variant_lock, resolve_cart
+from app.api.v1.endpoints.cart import resolve_cart
 from app.api.v1.schemas.checkout import (
     CheckoutQuoteRequest,
     CheckoutQuoteResponse,
@@ -32,9 +32,6 @@ from app.api.v1.schemas.checkout import (
 )
 from app.api.v1.schemas.order import OrderResponse
 from app.core.config import settings
-from app.domain.models.cart import Cart, CartItem
-from app.domain.models.catalog import Inventory, Product, ProductVariant
-from app.domain.models.identity import User
 from app.domain.models.order import Address, Order, OrderItem, OrderStatusHistory
 from app.domain.ports.identity_port import IdentityPort
 from app.domain.ports.tax_calculation_port import (

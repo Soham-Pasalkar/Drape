@@ -9,7 +9,6 @@ Conforms to ADR-001, ADR-002, and Milestone 2 requirements.
 
 import asyncio
 import secrets
-import uuid
 from typing import Optional
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
 from sqlalchemy import func, select
@@ -25,12 +24,12 @@ from app.api.v1.schemas.cart import (
     UpdateCartItemRequest,
 )
 from app.domain.models.cart import Cart, CartItem
-from app.domain.models.catalog import Inventory, Product, ProductImage, ProductVariant
+from app.domain.models.catalog import Inventory, Product, ProductVariant
 from app.domain.ports.identity_port import IdentityPort
 
 router = APIRouter(prefix="/cart", tags=["Shopping Cart"])
 
-# Concurrency locks per variant to serialize concurrent inventory checks and mutations
+# Concurrency locks per variant to serialize in-process inventory checks
 _variant_locks: dict[str, asyncio.Lock] = {}
 
 

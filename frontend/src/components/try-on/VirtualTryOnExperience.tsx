@@ -65,6 +65,8 @@ import * as THREE from "three";
 import TrackingStatusBanner from "./TrackingStatusBanner";
 import CameraViewport from "./CameraViewport";
 import GarmentSelector from "./GarmentSelector";
+import { CalibrationModal } from "./CalibrationModal";
+import { TryOnInfoModal } from "./TryOnInfoModal";
 import { DiagnosticMetrics, DiagnosticLayers, DEFAULT_DIAGNOSTIC_LAYERS } from "./DeveloperDiagnosticOverlay";
 
 interface VirtualTryOnExperienceProps {
@@ -1199,120 +1201,22 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
       </div>
 
       {/* Metric Calibration Modal */}
-      {calibrationModalOpen && (
-        <div className="fixed inset-0 z-50 bg-ink-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-ink-black border border-warm-ivory/20 max-w-md w-full p-6 space-y-5 relative text-warm-ivory shadow-2xl">
-            <button
-              onClick={() => setCalibrationModalOpen(false)}
-              className="absolute top-4 right-4 p-1 text-warm-ivory/60 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center space-x-2 text-electric-blue font-mono text-xs uppercase tracking-widest">
-              <Ruler className="w-4 h-4" />
-              <span>Camera Metric Scale Calibration</span>
-            </div>
-
-            <h3 className="font-serif text-2xl font-light">ISO ID-1 Reference Card</h3>
-
-            <p className="text-xs font-mono text-warm-ivory/70 leading-relaxed">
-              Monocular RGB webcams do not provide absolute metric depth. Hold a standard credit/identity card (85.60 mm width) parallel to the camera at approximately 0.5 meters to calibrate the focal length. This does not calibrate your body size.
-            </p>
-
-            <div className="space-y-3 font-mono text-xs">
-              <div>
-                <label className="text-warm-ivory/60 block text-[10px] uppercase mb-1">
-                  Card Apparent Width in Stream (Pixels)
-                </label>
-                <input
-                  type="number"
-                  value={cardWidthPxInput}
-                  onChange={(e) => setCardWidthPxInput(Number(e.target.value))}
-                  className="w-full bg-warm-ivory/10 border border-warm-ivory/20 px-3 py-2 text-warm-ivory font-mono text-xs focus:outline-none focus:border-electric-blue"
-                />
-              </div>
-
-              <div>
-                <label className="text-warm-ivory/60 block text-[10px] uppercase mb-1">
-                  Distance to Camera (Meters)
-                </label>
-                <input
-                  type="number"
-                  step="0.05"
-                  value={cardDistanceInput}
-                  onChange={(e) => setCardDistanceInput(Number(e.target.value))}
-                  className="w-full bg-warm-ivory/10 border border-warm-ivory/20 px-3 py-2 text-warm-ivory font-mono text-xs focus:outline-none focus:border-electric-blue"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-3 pt-2">
-              <button
-                onClick={handleApplyCardCalibration}
-                className="flex-1 py-2.5 bg-electric-blue text-white font-mono text-xs uppercase tracking-widest hover:bg-electric-blue/90 transition-colors shadow-md"
-              >
-                Apply Calibration
-              </button>
-              <button
-                onClick={handleResetPriorCalibration}
-                className="px-4 py-2.5 border border-warm-ivory/20 text-warm-ivory/70 font-mono text-xs uppercase tracking-widest hover:text-white hover:border-warm-ivory transition-colors"
-              >
-                Reset to Prior
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CalibrationModal
+        isOpen={calibrationModalOpen}
+        onClose={() => setCalibrationModalOpen(false)}
+        cardWidthPx={cardWidthPxInput}
+        onCardWidthPxChange={setCardWidthPxInput}
+        cardDistance={cardDistanceInput}
+        onCardDistanceChange={setCardDistanceInput}
+        onApply={handleApplyCardCalibration}
+        onReset={handleResetPriorCalibration}
+      />
 
       {/* Technical Dossier Modal */}
-      {infoModalOpen && (
-        <div className="fixed inset-0 z-50 bg-ink-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-ink-black border border-warm-ivory/20 max-w-lg w-full p-6 space-y-4 relative text-warm-ivory shadow-2xl">
-            <button
-              onClick={() => setInfoModalOpen(false)}
-              className="absolute top-4 right-4 p-1 text-warm-ivory/60 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center space-x-2 text-acid-lime font-mono text-xs uppercase tracking-widest">
-              <Sparkles className="w-4 h-4" />
-              <span>DRAPE SPATIAL ATELIER • SPECIFICATION</span>
-            </div>
-
-            <h3 className="font-serif text-2xl font-light">Parametric 3D AR Virtual Try-On</h3>
-
-            <div className="space-y-3 text-xs font-mono text-warm-ivory/80 leading-relaxed">
-              <p>
-                <strong>Camera Projection:</strong> Pinhole model K (population prior or card-calibrated focal length) with an off-axis frustum that includes the video&apos;s object-fit crop. Mirroring is a single CSS reflection of the whole layer stack.
-              </p>
-              <p>
-                <strong>Tracking & Jitter Filter:</strong> 1€ Filter (Casiez et al., 2012) on joint positions and quaternion SLERP in SO(3).
-              </p>
-              <p>
-                <strong>Parametric Body:</strong> A simplified MHR-inspired proxy (elliptical torso sections, capsule limbs). It is not a full MHR reconstruction.
-              </p>
-              <p>
-                <strong>Anthropometry:</strong> Body proportions are observed; absolute size is assumed from an anthropometric prior because a single webcam cannot measure it. Circumferences are indicative only.
-              </p>
-              <p>
-                <strong>Cloth Dynamics:</strong> XPBD secondary simulation (fixed 60 Hz step) about the fitted garment shape, with stretch, bending, tether and collision constraints.
-              </p>
-              <p>
-                <strong>Occlusion:</strong> Depth-only body proxy (colorWrite: false) occludes 3D garments when arms/hands pass in front of torso.
-              </p>
-            </div>
-
-            <button
-              onClick={() => setInfoModalOpen(false)}
-              className="w-full py-2.5 bg-warm-ivory text-ink-black font-mono text-xs uppercase tracking-widest hover:bg-white transition-colors"
-            >
-              Close Dossier
-            </button>
-          </div>
-        </div>
-      )}
+      <TryOnInfoModal
+        isOpen={infoModalOpen}
+        onClose={() => setInfoModalOpen(false)}
+      />
     </div>
   );
 }

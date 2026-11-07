@@ -11,7 +11,7 @@ import hmac
 import math
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,7 +28,7 @@ from app.api.v1.schemas.catalog import (
     ProductVariantSchema,
 )
 from app.db.seed import seed_catalog
-from app.domain.models.catalog import Inventory, Product, ProductImage, ProductVariant
+from app.domain.models.catalog import Product, ProductVariant
 
 router = APIRouter(prefix="/products", tags=["Product Catalog"])
 

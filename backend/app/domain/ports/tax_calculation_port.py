@@ -8,7 +8,7 @@ Conforms to docs/architecture/interfaces/tax_calculation_port.md.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 
 @dataclass(frozen=True)

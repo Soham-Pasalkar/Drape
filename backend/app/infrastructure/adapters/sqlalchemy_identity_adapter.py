@@ -10,7 +10,7 @@ Conforms to ADR-001, ADR-002, and docs/architecture/interfaces/identity_port.md.
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Optional
+from typing import Callable
 import bcrypt
 import jwt
 from sqlalchemy import select, update

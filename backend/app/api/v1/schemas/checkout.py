@@ -7,7 +7,7 @@ Conforms to ADR-001, ADR-002, and PRD checkout specifications.
 
 from decimal import Decimal
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from app.api.v1.schemas.address import AddressCreateSchema
 

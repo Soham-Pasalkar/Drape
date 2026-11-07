@@ -14,7 +14,6 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, get_identity_adapter
 from app.api.v1.schemas.order import OrderListResponse, OrderResponse
-from app.domain.models.identity import User
 from app.domain.models.order import Order
 from app.domain.ports.identity_port import IdentityPort
 

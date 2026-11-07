@@ -12,7 +12,7 @@ from decimal import Decimal
 import json
 import logging
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -32,7 +32,7 @@ from app.api.v1.schemas.payment import (
 from app.core.config import settings
 from app.domain.models.cart import Cart, CartItem
 from app.domain.models.catalog import Inventory
-from app.domain.models.order import Order, OrderItem, OrderStatusHistory, Payment
+from app.domain.models.order import Order, OrderStatusHistory, Payment
 from app.domain.ports.identity_port import IdentityPort
 from app.domain.ports.payment_gateway_port import PaymentGatewayPort
 

@@ -7,7 +7,6 @@ Conforms to ADR-001, ADR-007, and Milestone 2 requirements.
 """
 
 from datetime import datetime
-from decimal import Decimal
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
