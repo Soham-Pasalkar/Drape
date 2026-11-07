@@ -3,10 +3,10 @@
 | Field | Value |
 |---|---|
 | Mode | Manual AI-DLC (ai-dlc-engineering skill not installed), tier 2, brownfield |
-| Branch / commit | `ar-cleanup` @ `e1ea4b0` |
+| Branch / commit | `ar-cleanup` (recording build tag `ar-m1-rec`) |
 | Rollback tags | `pre-cleanup-head` (736b542), `pre-cleanup-wt` (e2ffa3e) |
 | Current phase | Phase 2 — Construction, M1 (session recording + replay) |
-| Status | M1 in progress |
+| Status | M1 T1–T8 implemented; acceptance (a)–(d) evidenced on rig; **waiting for user's Safari + Chrome baseline sessions** to close M1 |
 | Gates | G1 approved · G2 approved · G3 approved |
 | Milestone in progress | M1 |
 
@@ -30,6 +30,15 @@
   with a golden test … assert identical pose, anchor and registration numbers (< 1e-6) before the refactor is accepted;
   (2) the Safari and Chrome sessions recorded on the unmodified M1 build are the BASELINE: store them in
   docs/aidlc/sessions/ …". Applied: T1b + T4b; baseline path `docs/aidlc/sessions/baseline/`. "Start M1 now … Do not start M2."
+
+## M1 evidence log (2026-11-07)
+- Golden: tag `m1-pre-refactor` (7e225ef; golden file committed in f845779 — that single commit fails test-ar-golden by
+  construction); T2/T3/T4 golden max|Δ| = 0.
+- Rig session `docs/aidlc/sessions/rig/drape-session-chrome-…json` (headless Chrome, fake photo video, NOT live):
+  validator 0 errors; replay |Δ| 0.0000 px; 0 network requests during recording.
+- Rig observations for M2 (not acted on): MediaPipe reports off-frame hips visible (6/15 hips_out frames) and PnP uses
+  them; fast approach → distance/root lag (frame 141 root z −3.02 m while subject close) and garment not drawn while
+  anchor/gizmo correct; settled-frame rule (20 px/frame) is too loose at 10 fps.
 
 ## Notes (out of scope for the current phase)
 - ADR-004 (pose in a Web Worker) diverges from the code; deferred to after M3 (decision 4) — needs an ADR amendment at G2.
