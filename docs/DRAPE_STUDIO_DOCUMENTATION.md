@@ -224,6 +224,7 @@ All endpoints conform to RFC 9457 error contracts and enforce strict customer ID
 | `test_drape_studio.py` | 7 | **7 Passed** | Daily stylist greeting, wear logging snapshots, rotation repeat suppression, rotation analytics, outfit planning, mark-worn conversion, style profile, IDOR security. |
 | Backend Pytest Suite | 109 | **109 Passed** | Complete backend verification: auth, catalog, orders, cart, addresses, payments, wardrobe, stylist, security. |
 | Commerce Suite (`test:commerce`) | 21 | **21 Passed** | Assortment integrity, integer currency, variant stock, search, filtering, and 3D garment registry mapping. |
-| AR Fitting Baseline (`test:ar`) | 284 | **284 Passed** | 100% frozen AR baseline: calibration, camera intrinsics, instant depth, deformation, XPBD cloth dynamics. |
+| AR Fitting Baseline (`test:ar`) | 282 | **282 Passed** | 100% frozen AR baseline: calibration, camera intrinsics, instant depth, deformation, XPBD cloth dynamics. |
 | 3D Garment Assets (`validate:garments`) | 8 | **8 Passed** | Canonical GLB meshes, vertex counts, anchors, and XPBD simulation data. |
 | Next.js Production Build | 23 routes | **Compiled Clean** | TypeScript validation, static page generation, and zero ESLint warnings. |
+

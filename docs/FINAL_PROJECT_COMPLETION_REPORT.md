@@ -140,3 +140,4 @@ All test suites and verification checks pass with 100% green results across both
 2. **Data Integrity:** Historical `WearLogItem` snapshots preserve garment metadata even if the original item is deleted.
 3. **Clean Architecture:** Domain ports and adapters structure in FastAPI; modular React components with Tailwind CSS in Next.js.
 4. **Maintenance:** Migrations managed via Alembic (`0001` through `0007`).
+
