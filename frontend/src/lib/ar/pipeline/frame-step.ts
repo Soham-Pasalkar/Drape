@@ -18,6 +18,12 @@ export class FrameStep {
     this.engine = new FittingEngine(videoWidth, videoHeight);
   }
 
+  /** Clears smoother + per-subject fitting state (recording start; replay starts from the same state). */
+  reset(): void {
+    this.smoother.reset();
+    this.engine.resetSubjectState();
+  }
+
   smooth(raw: LandmarkPoint[], timestampMs: number, world?: LandmarkPoint[]): BodyKeypoints | null {
     return this.smoother.process(raw, timestampMs, world);
   }

@@ -138,6 +138,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   const [includeSnapshots, setIncludeSnapshots] = useState(false);
   const includeSnapshotsRef = useRef(false);
   const lastRecordUiRef = useRef(0);
+  const pendingRecordHeaderRef = useRef<SessionFile["header"] | null>(null);
   const [savedSessionName, setSavedSessionName] = useState<string | null>(null);
   const processedFrameIdRef = useRef<number>(0);
   const latestFitRef = useRef<DetailedFittingResult | null>(null);
@@ -437,7 +438,8 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
     const K = fitting.calibrationManager.getIntrinsics();
     const vs = getComputedStyle(video);
     scene.ensureRegistrationProbes();
-    recorderRef.current.start(
+    // Armed now; actually started by onBeforeSmooth on the next detected pose frame.
+    pendingRecordHeaderRef.current = (
       {
         schema: "drape-ar-session/1",
         createdAt: new Date().toISOString(),
@@ -450,8 +452,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
         garmentId: selectedGarmentRef.current.id,
         calibration: { fx: K.fx, fy: K.fy, cx: K.cx, cy: K.cy, width: K.width, height: K.height, method: K.calibrationMethod },
         video: { objectFit: vs.objectFit, objectPosition: vs.objectPosition },
-      },
-      performance.now()
+      }
     );
     setSavedSessionName(null);
     setLastMarker(null);
@@ -461,6 +462,7 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
   };
 
   const stopAndSaveRecording = () => {
+    pendingRecordHeaderRef.current = null;
     const file: SessionFile | null = recorderRef.current.stop();
     setRecording(false);
     if (!file) return;
@@ -519,6 +521,16 @@ export default function VirtualTryOnExperience({ initialGarmentId }: VirtualTryO
           setBodyTrackingStatus(body);
           setTrackingStatus(keypoints ? "body_detected" : "body_lost");
         }
+      },
+      onBeforeSmooth: (t) => {
+        // A pending recording starts HERE, before this frame is smoothed, from a clean pipeline state, so offline
+        // replay (which starts fresh) reproduces it. Visible effect: one re-snap + distance re-initialisation.
+        const pend = pendingRecordHeaderRef.current;
+        if (!pend || session !== sessionRef.current) return;
+        pendingRecordHeaderRef.current = null;
+        frameStepRef.current?.reset();
+        threeSceneRef.current?.resetTracking();
+        recorderRef.current.start(pend, t);
       },
       onStatusChange: (status) => {
         if (session === sessionRef.current) setTrackingStatus(status);

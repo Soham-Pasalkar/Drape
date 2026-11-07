@@ -20,6 +20,8 @@ export interface PoseTrackerCallbacks {
    */
   onKeypoints?: (keypoints: BodyKeypoints | null, rawLandmarks: LandmarkPoint[], meta?: PoseFrameMeta) => void;
   onStatusChange?: (status: TrackingStatus) => void;
+  /** Called right before a detected frame is smoothed (used to start a recording from a clean state). */
+  onBeforeSmooth?: (timestampMs: number) => void;
   onError?: (error: Error) => void;
 }
 
@@ -196,6 +198,7 @@ export class PoseTracker {
                 }));
               }
 
+              callbacks.onBeforeSmooth?.(now);
               const smoothed = this.smoother.process(rawLandmarks, now, worldLandmarks);
               const meta: PoseFrameMeta = { world: worldLandmarks, timestampMs: now, mediaTime: this.lastMediaTime >= 0 ? this.lastMediaTime : null };
 

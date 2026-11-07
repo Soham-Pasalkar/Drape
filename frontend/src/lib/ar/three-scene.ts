@@ -318,6 +318,12 @@ export class ThreeSceneManager {
     this.hasTarget = true;
   }
 
+  /** Forgets the current target so the next valid frame snaps (recording start; matches a fresh replay). */
+  resetTracking(): void {
+    this.hasTarget = false;
+    this.tracking = false;
+  }
+
   /** Shape-only update (e.g. for tests or when only the body model changed). */
   setBodyShape(shape: BodyShape): void {
     this.bodyProxy.setShape(shape);
