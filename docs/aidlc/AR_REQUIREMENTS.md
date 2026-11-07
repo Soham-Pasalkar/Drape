@@ -1,11 +1,11 @@
 # DRAPE AR Try-On — Requirements (Inception, gate G1)
 
-Status: **DRAFT — awaiting G1 approval** (lens review done: product, architect, security/privacy, QA, tech lead, SRE, writer). Scope: the browser try-on (`/try-on`). Source: the engineering
+Status: **APPROVED at G1** (2026-11-07, user: "approved G1" + amendments 1–4, applied below). Scope: the browser try-on (`/try-on`). Source: the engineering
 decision in the user's AI-DLC brief (2026-11-07) and Phase 0 (`CODEBASE.md`). Phase-0 questions 1–8 resolved by
 the user's reply "go" = recommended defaults (recorded in `STATE.md`).
 
 Conventions: **MUST** = acceptance-tested; each requirement names its evidence (E: command, replay result,
-screenshot). "Session" = a recording made with FR-20 in the user's own browser. "Settled frame" = a frame ≥ 0.5 s
+screenshot). "Session" = a recording made with FR-18 in the user's own browser. "Settled frame" = a frame ≥ 0.5 s
 after the last landmark moved > 20 px/frame. Targets marked *(provisional)* are re-confirmed at G3.
 
 ## 1. Functional requirements
@@ -14,8 +14,8 @@ after the last landmark moved > 20 px/frame. Targets marked *(provisional)* are 
 | ID | Requirement | Acceptance criterion / evidence |
 |---|---|---|
 | FR-01 | Intrinsics K from a 65° HFOV prior on the *actual* `videoWidth/Height`; principal point at the source-frame centre; the object-fit: cover crop/scale is applied when mapping to the canvas. | 9-point test < 2 px for 16:9 video in 4:3, 16:9 and portrait containers (E: `npm run test:ar`). |
-| FR-02 | Mirroring happens exactly once: CSS `scaleX(-1)` on the wrapper holding video + canvas(es); projection and landmark maths stay unmirrored. The mirror decision uses `track.getSettings().facingMode` when present, else the requested mode, and its value and source are logged. | Session shows `mirror.source`; on-screen registration (FR-05) passes at far left and far right. |
-| FR-03 | The displayed image is the frame the pose was inferred on (inferred frame drawn to a canvas via `requestVideoFrameCallback`), not the live `<video>`. | Session: displayed-frame timestamp == pose-frame timestamp on 100 % of rendered frames. |
+| FR-02 | Mirroring happens exactly once: CSS `scaleX(-1)` on the wrapper holding video + canvas(es); projection and landmark maths stay unmirrored. The mirror decision uses `track.getSettings().facingMode` when present. **Assumption A6:** desktop Safari (and some Chrome builds) do not report `facingMode`; the fallback is then the *requested* mode (`'user'` ⇒ mirrored), logged as `source: "requested-assumed"` (vs `"getSettings"`). | Session shows `mirror.source`; on-screen registration (FR-05) passes at far left and far right. |
+| FR-03 | The displayed image is the frame the pose was inferred on (inferred frame drawn to a canvas via `requestVideoFrameCallback`), not the live `<video>`. A diagnostics toggle switches **live video ↔ inferred frame** so both are measurable; the active mode is recorded per frame. | Session in "inferred" mode: displayed-frame mediaTime == pose-frame mediaTime on 100 % of rendered frames; FR-05 error reported separately for both modes. |
 | FR-04 | Every landmark used for pose is visible (≥ 0.5) **and** inside the frame (0 ≤ x,y ≤ 1 with a 2 % margin). | Replay unit test with off-frame hips at visibility 0.9: hips excluded; logged per frame. |
 | FR-05 | Pixel registration: on-screen distance between each used 2D landmark and the projected 3D model keypoint, and between the garment anchor and the mid-shoulder point. | **< 8 px on settled frames** at centre, far left, far right, high, low, closer and farther in the user's Safari **and** Chrome sessions (E: replay report). |
 
@@ -42,8 +42,8 @@ after the last landmark moved > 20 px/frame. Targets marked *(provisional)* are 
 |---|---|---|
 | FR-16 | The UI shows only computed values; tracking % = mean visibility of the used landmarks; features not yet built have no UI. | UI review checklist; grep for removed panels. |
 | FR-17 | Debug probes (axes/F gizmo, face colours, mid-grey, registration dots + readout) remain available behind the diagnostics toggle. | Screenshot. |
-| FR-20 | **Session recording** (opt-in, local only): per frame — landmarks with visibility, world landmarks, video/container sizes, DPR, mirror decision + source, pose, PnP keypoints, registration errors, user agent; optional composite PNGs (downscaled to 320 px wide, opt-in). Export as a downloadable file; never uploaded. The file contains no account data, cookies, tokens, names, e-mail or location; the only device identifier is the user agent. | Recorded file validates against a schema; network check (NFR-03) during recording. |
-| FR-21 | **Replay**: drives the same pipeline (fitting → scene maths) offline in Node/test from a session file and reports FR-05/06/07/09 metrics. | `npm run test:ar` includes ≥ 1 user session; replay reproduces the recorded registration numbers within 1 px. |
+| FR-18 | **Session recording** (opt-in, local only): per frame — landmarks with visibility, world landmarks, video/container sizes, DPR, mirror decision + source, pose, PnP keypoints, registration errors, user agent; optional composite PNGs (downscaled to 320 px wide, opt-in). Export as a downloadable file; never uploaded. The file contains no account data, cookies, tokens, names, e-mail or location; the only device identifier is the user agent. | Recorded file validates against a schema; network check (NFR-03) during recording. |
+| FR-19 | **Replay**: drives the same pipeline (fitting → scene maths) offline in Node/test from a session file and reports FR-05/06/07/09 metrics. | `npm run test:ar` includes ≥ 1 user session; replay reproduces the recorded registration numbers within 1 px. |
 
 ## 2. Non-functional requirements
 | ID | Requirement | Acceptance criterion |
@@ -59,7 +59,7 @@ after the last landmark moved > 20 px/frame. Targets marked *(provisional)* are 
 ## 3. Assumptions
 A1 Laptop webcam with no metric depth; A2 user stands 0.6–2.5 m away, often cropped at waist/knees; A3 MediaPipe
 `pose_landmarker_lite` now, `full` evaluated in M2 (decision 8); A4 the 8 procedural garments are placeholders;
-A5 recordings are made by the user and shared deliberately.
+A5 recordings are made by the user and shared deliberately; A6 see FR-02 (facingMode fallback).
 
 ## 4. Non-goals
 Photoreal (diffusion) try-on; server-side inference; mobile browsers (for now); pattern-based garment authoring
