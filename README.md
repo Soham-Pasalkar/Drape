@@ -351,13 +351,19 @@ Drape/
 │   └── .env.example
 │
 ├── docs/
+│   ├── README.md
 │   ├── architecture/
-│   │   └── adr/
-│   ├── research/
-│   ├── aidlc/
-│   ├── DRAPE_STUDIO_DOCUMENTATION.md
-│   ├── FINAL_PROJECT_COMPLETION_REPORT.md
-│   └── FINAL_REPOSITORY_RELEASE_REPORT.md
+│   │   ├── adr/
+│   │   └── interfaces/
+│   ├── development/
+│   ├── features/
+│   ├── reports/
+│   ├── archive/
+│   │   ├── aidlc/
+│   │   ├── research/
+│   │   ├── milestones/
+│   │   └── audits/
+│   └── assets/
 │
 ├── .env.example
 ├── .gitignore
@@ -652,13 +658,15 @@ Additional engineering documentation is available in the [`docs/`](docs/) direct
 
 | Document | Description |
 |---|---|
-| [System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md) | System architecture and technical design |
-| [DRAPE Studio Documentation](docs/DRAPE_STUDIO_DOCUMENTATION.md) | Stylist engine, wear tracking, and outfit planning |
-| [Final Project Completion Report](docs/FINAL_PROJECT_COMPLETION_REPORT.md) | Project implementation and verification summary |
-| [Final Repository Release Report](docs/FINAL_REPOSITORY_RELEASE_REPORT.md) | Repository release and publication details |
+| [Documentation Index](docs/README.md) | Central catalog of all technical specifications and guides |
+| [System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md) | Modular monolith architecture and technical design |
+| [DRAPE Studio Documentation](docs/features/DRAPE_STUDIO_DOCUMENTATION.md) | Stylist engine, wear tracking, and outfit planning |
+| [Development Guide](docs/development/DEVELOPMENT_GUIDE.md) | Local environment onboarding, migrations, and demo seed utilities |
+| [Testing Guide](docs/development/TESTING_GUIDE.md) | Verification suites, AR baseline tests, and quality assurance |
+| [Final Project Completion Report](docs/reports/FINAL_PROJECT_COMPLETION_REPORT.md) | Project implementation and verification summary |
+| [Final Repository Release Report](docs/reports/FINAL_REPOSITORY_RELEASE_REPORT.md) | Repository release and publication details |
 | [Architecture Decision Records](docs/architecture/adr/) | Architecture decisions and rationale |
-| [Research](docs/research/) | Technical research and evaluations |
-| [AIDLC](docs/aidlc/) | Requirements, planning, and engineering documentation |
+| [Historical Archive](docs/archive/) | Preserved AI-DLC sessions, milestone reports, audits, and research |
 
 ---
 

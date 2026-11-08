@@ -101,7 +101,10 @@ async function recordInNode(fixture) {
   });
 
   suite('Committed sessions replay within 1 px when recorded with the current pipeline version (FR-19)');
-  const roots = ['rig', 'baseline'].map((d) => path.join(__dirname, '..', '..', 'docs', 'aidlc', 'sessions', d));
+  const roots = ['rig', 'baseline'].flatMap((d) => [
+    path.join(__dirname, '..', '..', 'docs', 'archive', 'aidlc', 'sessions', d),
+    path.join(__dirname, '..', '..', 'docs', 'aidlc', 'sessions', d),
+  ]);
   const files = roots.flatMap((r) => (fs.existsSync(r) ? fs.readdirSync(r).filter((f) => f.endsWith('.json')).map((f) => path.join(r, f)) : []));
   if (!files.length) console.log('      (no committed sessions yet)');
   for (const f of files) {
