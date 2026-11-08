@@ -1,8 +1,10 @@
  <div align="center">
 
-# DRAPE
+# DRΛPE
 
-**A Fashion E-Commerce Platform with 3D Virtual Try-On and an Intelligent Digital Wardrobe**
+### THE ART OF PERSONAL STYLE.
+
+**Fashion E-Commerce · 3D Virtual Try-On · Intelligent Digital Wardrobe**
 
 A full-stack fashion platform combining online shopping, real-time 3D garment visualization, personalized wardrobe management, and outfit recommendations.
 
@@ -19,7 +21,7 @@ A full-stack fashion platform combining online shopping, real-time 3D garment vi
 [![AR Tests](https://img.shields.io/badge/AR-282_tests_passed-success)](#testing)
 [![Commerce Tests](https://img.shields.io/badge/Commerce-21_tests_passed-success)](#testing)
 
-[**Repository**](https://github.com/Soham-Pasalkar/Drape) · [**Documentation**](docs/) · [**System Architecture**](docs/architecture/SYSTEM_ARCHITECTURE.md)
+[**GitHub Repository**](https://github.com/Soham-Pasalkar/Drape) · [**Documentation**](docs/) · [**System Architecture**](docs/architecture/SYSTEM_ARCHITECTURE.md)
 
 </div>
 
@@ -37,7 +39,7 @@ The platform is built using **Next.js, TypeScript, FastAPI, and PostgreSQL**, wi
 
 ## Features
 
-### E-Commerce
+### 1. E-Commerce
 
 - Curated catalog containing 18 clothing styles.
 - Product categories, variants, and color-aware product photography.
@@ -45,10 +47,10 @@ The platform is built using **Next.js, TypeScript, FastAPI, and PostgreSQL**, wi
 - Shopping cart and checkout workflows.
 - Customer registration, authentication, and account management.
 - Inventory-aware order processing.
-- Order history and payment integration interfaces.
+- Order history and payment integration.
 - Integer-based monetary calculations for pricing accuracy.
 
-### 3D Virtual Try-On
+### 2. 3D Virtual Try-On
 
 - Live camera input and body pose tracking.
 - MediaPipe-based landmark detection.
@@ -61,7 +63,7 @@ The platform is built using **Next.js, TypeScript, FastAPI, and PostgreSQL**, wi
 
 The virtual try-on system provides a visual representation of supported garments. It is not a substitute for physical fitting, precise body measurements, or guaranteed clothing-size accuracy.
 
-### Smart Digital Wardrobe
+### 3. Smart Digital Wardrobe
 
 - Personal digital collection of clothing.
 - Interactive, furniture-inspired walnut armoire.
@@ -71,7 +73,7 @@ The virtual try-on system provides a visual representation of supported garments
 - Outfit creation and organization.
 - Garment-level wear statistics.
 
-### DRAPE Studio
+### 4. DRAPE Studio
 
 A personal styling engine that uses wardrobe information and wear history to generate outfit recommendations.
 
@@ -89,22 +91,18 @@ Recommendations are generated through a deterministic, explainable scoring model
 
 ---
 
-## Application Preview
+## Application Modules
 
-<div align="center">
-
-| Application | Description |
+| Module | Description |
 |---|---|
-| **Collections** | Browse and discover clothing products. |
-| **Virtual Try-On** | Visualize supported garments using the 3D fitting experience. |
-| **Digital Wardrobe** | Manage personal clothing in an interactive virtual armoire. |
-| **DRAPE Studio** | Discover personalized outfit combinations. |
-| **Wear Diary** | Review outfit history and garment usage. |
-| **Outfit Planner** | Schedule and manage future outfits. |
-
-</div>
-
-*Screenshots and demonstration recordings can be added here as the project presentation assets are prepared.*
+| Storefront | Main shopping experience and product discovery |
+| Collections | Browse and filter clothing products |
+| Virtual Try-On | Visualize supported garments using the 3D fitting experience |
+| Digital Wardrobe | Manage personal clothing in an interactive virtual armoire |
+| DRAPE Studio | Discover personalized outfit combinations |
+| Wear Diary | Review outfit history and garment usage |
+| Outfit Planner | Schedule and manage future outfits |
+| Customer Account | Manage customer identity and account information |
 
 ---
 
@@ -122,7 +120,7 @@ Recommendations are generated through a deterministic, explainable scoring model
 | Data Validation | Pydantic |
 | Database | PostgreSQL |
 | ORM | SQLAlchemy 2.0 Async |
-| Migrations | Alembic |
+| Database Migrations | Alembic |
 | Computer Vision | MediaPipe Tasks Vision |
 | 3D Rendering | Three.js / WebGL |
 | 3D Asset Format | GLB / glTF |
@@ -131,11 +129,13 @@ Recommendations are generated through a deterministic, explainable scoring model
 
 ---
 
-## Architecture
+## System Architecture
 
-DRAPE uses a **modular monolith architecture** with Hexagonal Architecture principles on the backend.
+DRAPE follows a **modular monolith architecture** with Hexagonal Architecture principles on the backend.
 
 The frontend and backend are separate applications communicating through a versioned REST API. Business domains are organized into modules, while external infrastructure integrations are isolated behind domain ports.
+
+### High-Level Architecture
 
 ```mermaid
 flowchart TB
@@ -190,9 +190,9 @@ flowchart TB
     Catalog --> P6
 ```
 
-### Backend architecture
+### Backend Architecture
 
-The backend separates application logic from infrastructure dependencies through six domain interfaces:
+The backend separates application logic from infrastructure dependencies through six domain interfaces.
 
 | Domain Port | Responsibility |
 |---|---|
@@ -203,9 +203,9 @@ The backend separates application logic from infrastructure dependencies through
 | `TaxCalculationPort` | Tax calculation and fiscal rules |
 | `CatalogSyncPort` | Product and inventory synchronization |
 
-This separation makes it possible to change infrastructure providers without coupling core business logic to a particular implementation.
+This separation allows infrastructure providers to be changed without tightly coupling core business logic to a particular implementation.
 
-### Virtual try-on pipeline
+### Virtual Try-On Pipeline
 
 The 3D fitting pipeline processes camera input and garment geometry through a sequence of computer vision and simulation stages.
 
@@ -222,6 +222,89 @@ flowchart TD
     I --> J["Three.js Rendering"]
     J --> K["Virtual Try-On Preview"]
 ```
+
+---
+
+## Virtual Try-On Engine
+
+The virtual try-on system is designed around 3D garment geometry and real-time deformation rather than simply overlaying a product photograph onto a camera feed.
+
+### Core Components
+
+| Component | Responsibility |
+|---|---|
+| Pose Tracking | Extract body landmarks from camera input |
+| Camera Calibration | Establish camera and body coordinate relationships |
+| Metric Depth | Estimate depth using calibrated geometry |
+| Body Proxy | Provide a simplified representation of the tracked body |
+| Garment Deformation | Adapt garment geometry to tracked body movement |
+| XPBD Solver | Simulate cloth-like behavior |
+| Occlusion | Handle garment and body depth relationships |
+| GLB Assets | Supply canonical 3D garment models |
+| Three.js | Render the interactive 3D experience |
+
+### Canonical Garment Assets
+
+The project includes eight validated GLB garment assets:
+
+- `tshirt-crewneck`
+- `tshirt-oversized`
+- `tshirt-fitted`
+- `top-longsleeve`
+- `top-sleeveless`
+- `skirt-aline`
+- `skirt-pleated`
+- `dress-midi`
+
+Not every catalog product is currently mapped to a compatible 3D garment asset. Try-on availability is therefore limited to supported products.
+
+---
+
+## DRAPE Studio Recommendation Engine
+
+DRAPE Studio uses wardrobe context and historical behavior to generate personalized outfit recommendations.
+
+### Recommendation Model
+
+The scoring model combines six dimensions:
+
+\[
+S = 0.25C + 0.20H + 0.20O + 0.15P + 0.15R + 0.05N
+\]
+
+Where:
+
+| Variable | Meaning | Weight |
+|---|---|---:|
+| \(C\) | Category compatibility | 25% |
+| \(H\) | Color harmony | 20% |
+| \(O\) | Occasion suitability | 20% |
+| \(P\) | Personal preference | 15% |
+| \(R\) | Wardrobe rotation health | 15% |
+| \(N\) | Novelty and feedback | 5% |
+
+### Rotation Strategies
+
+| Strategy | Behavior |
+|---|---|
+| `balanced` | Balances outfit compatibility with garment usage |
+| `avoid_recent` | Penalizes recently worn combinations |
+| `max_variety` | Prioritizes diversity across recommendations |
+
+### Persistent Wardrobe Intelligence
+
+The backend maintains the following core entities:
+
+- `WardrobeItem`
+- `Outfit`
+- `OutfitItem`
+- `WearLog`
+- `WearLogItem`
+- `OutfitPlan`
+- `StylistPreferences`
+- `OutfitFeedback`
+
+Historical wear records retain garment snapshots, allowing the diary to remain meaningful even if an original wardrobe item is later modified or deleted.
 
 ---
 
@@ -288,8 +371,6 @@ Follow these steps to run DRAPE locally.
 
 ### Prerequisites
 
-Make sure the following software is installed:
-
 | Dependency | Version |
 |---|---|
 | Node.js | 20 or later |
@@ -297,7 +378,7 @@ Make sure the following software is installed:
 | Python | 3.12 or later |
 | PostgreSQL | 16 or later |
 
-### 1. Clone the repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/Soham-Pasalkar/Drape.git
@@ -319,7 +400,7 @@ CREATE DATABASE drape_db OWNER drape_app;
 
 Use the database credentials in the backend environment configuration.
 
-### 3. Set up the backend
+### 3. Set Up the Backend
 
 ```bash
 cd backend
@@ -361,7 +442,7 @@ Example database configuration:
 DATABASE_URL=postgresql+asyncpg://drape_app:your_password@localhost:5432/drape_db
 ```
 
-**Important:** The supplied environment templates contain development placeholders. Replace them with your own values. Never use development secrets in a public or production deployment.
+The supplied environment templates contain development placeholders. Replace them with your own values. Never use development secrets in a production deployment.
 
 Run database migrations:
 
@@ -377,12 +458,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 The backend will be available at:
 
-- API: http://localhost:8000
-- Swagger documentation: http://localhost:8000/docs
-- Liveness endpoint: http://localhost:8000/healthz
-- Readiness endpoint: http://localhost:8000/readyz
+| Service | URL |
+|---|---|
+| API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| Liveness | http://localhost:8000/healthz |
+| Readiness | http://localhost:8000/readyz |
 
-### 4. Set up the frontend
+### 4. Set Up the Frontend
 
 Open a separate terminal from the repository root:
 
@@ -415,7 +498,7 @@ The frontend will be available at:
 
 **http://localhost:3000**
 
-### 5. Application routes
+### 5. Application Routes
 
 | Route | Description |
 |---|---|
@@ -432,7 +515,7 @@ Some features require a configured database, authenticated customer session, com
 
 ---
 
-## API
+## API Reference
 
 The backend exposes a versioned REST API under:
 
@@ -454,13 +537,13 @@ The main API domains include:
 | Wear Diary | Wear logs and garment rotation |
 | Outfit Planner | Scheduled outfits and wear conversion |
 
-The interactive OpenAPI documentation is available at:
+Interactive API documentation is available through Swagger UI:
 
 ```text
 http://localhost:8000/docs
 ```
 
-### Selected DRAPE Studio endpoints
+### Selected DRAPE Studio Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -478,40 +561,11 @@ Refer to Swagger UI for request schemas, authentication requirements, and respon
 
 ---
 
-## DRAPE Studio Recommendation Model
-
-DRAPE Studio uses a weighted scoring model to evaluate outfit combinations.
-
-\[
-S = 0.25C + 0.20H + 0.20O + 0.15P + 0.15R + 0.05N
-\]
-
-Where:
-
-| Variable | Meaning | Weight |
-|---|---|---:|
-| \(C\) | Category compatibility | 25% |
-| \(H\) | Color harmony | 20% |
-| \(O\) | Occasion suitability | 20% |
-| \(P\) | Personal preference | 15% |
-| \(R\) | Wardrobe rotation health | 15% |
-| \(N\) | Novelty and feedback | 5% |
-
-The engine also supports three rotation strategies:
-
-- **Balanced:** Balances outfit compatibility with garment usage.
-- **Avoid Recent:** Penalizes recently worn combinations.
-- **Maximum Variety:** Prioritizes diversity across recommendations.
-
-The recommendation engine is designed to be explainable and grounded in the customer's actual wardrobe data.
-
----
-
 ## Testing
 
 The project includes automated test suites for the backend, commerce functionality, and 3D virtual try-on system.
 
-### Backend tests
+### Backend Tests
 
 ```bash
 cd backend
@@ -519,39 +573,39 @@ cd backend
 .venv/bin/pytest tests
 ```
 
-### Commerce tests
+### Commerce Tests
 
 ```bash
 npm --prefix frontend run test:commerce
 ```
 
-### Virtual try-on tests
+### Virtual Try-On Tests
 
 ```bash
 npm --prefix frontend run test:ar
 ```
 
-### 3D garment asset validation
+### 3D Garment Asset Validation
 
 ```bash
 npm --prefix frontend run validate:garments
 ```
 
-### Frontend linting
+### Frontend Linting
 
 ```bash
 npm --prefix frontend run lint
 ```
 
-### Production build
+### Production Build
 
 ```bash
 npm --prefix frontend run build
 ```
 
-### Final release verification
+### Final Release Verification
 
-The final repository release report records these results:
+The final repository release report records the following results:
 
 | Test Suite | Result |
 |---|---:|
@@ -563,13 +617,15 @@ The final repository release report records these results:
 | Production build | 23 routes compiled |
 | Database migrations | Up to `0007_wear_logs_and_planner` |
 
+These are recorded release results, not a guarantee that every development environment will produce identical results.
+
 ---
 
 ## Security and Privacy
 
 Security and privacy are considered throughout the application's architecture.
 
-Implemented engineering measures include:
+Key engineering measures include:
 
 - Password hashing and persistent authentication.
 - HTTP-only cookie-based session handling.
@@ -581,7 +637,7 @@ Implemented engineering measures include:
 - Explicit consent boundaries for remote customer-media processing.
 - Historical snapshots for persistent wear records.
 
-### Camera and virtual try-on data
+### Camera and Virtual Try-On Data
 
 The live camera-based experience is designed around browser-side processing. Camera access requires explicit browser permission.
 
@@ -607,7 +663,7 @@ Additional engineering documentation is available in the [`docs/`](docs/) direct
 
 ## Limitations
 
-- Virtual try-on is currently available only for products mapped to compatible 3D garment assets.
+- Virtual try-on is available only for products mapped to compatible 3D garment assets.
 - The visual simulation does not guarantee real-world clothing fit or exact sizing.
 - The application requires a configured backend and database for persistent customer functionality.
 - Browser camera permissions and compatible hardware are required for live camera-based try-on.
@@ -639,9 +695,9 @@ Do not assume that the source code is open-source or available for redistributio
 
 <div align="center">
 
-**DRAPE**
+### DRΛPE
 
-*Fashion meets technology.*
+**THE ART OF PERSONAL STYLE.**
 
 [GitHub Repository](https://github.com/Soham-Pasalkar/Drape)
 
