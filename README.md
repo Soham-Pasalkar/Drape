@@ -1,15 +1,9 @@
- <div align="center">
+<div align="center">
 
-<pre>
-██████╗   ██████╗    █████╗   ██████╗   ███████╗
-██╔══██╗  ██╔══██╗  ██╔══██╗  ██╔══██╗  ██╔════╝
-██║  ██║  ██████╔╝  ███████║  ██████╔╝  █████╗
-██║  ██║  ██╔══██╗  ██╔══██║  ██╔═══╝   ██╔══╝
-██████╔╝  ██║  ██║  ██║  ██║  ██║       ███████╗
-╚═════╝  ╚ ═╝  ╚═╝  ╚═╝  ╚═╝  ╚═╝       ╚══════╝
-</pre>
+<img src="docs/assets/drape-banner.jpg" alt="DRAPE — The Art of Personal Style" width="100%" />
 
-### THE ART OF PERSONAL STYLE.
+<br/>
+<br/>
 
 **Fashion E-Commerce · 3D Virtual Try-On · Intelligent Digital Wardrobe**
 
